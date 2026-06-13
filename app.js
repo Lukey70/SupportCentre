@@ -1,122 +1,136 @@
-const STORAGE_KEY = "supportRequestPortal.requests.v3";
-const LEGACY_STORAGE_KEYS = ["supportRequestPortal.requests.v2", "supportRequestPortal.requests.v1"];
-const COUNTER_KEY = "supportRequestPortal.counter.v3";
-const LEGACY_COUNTER_KEYS = ["supportRequestPortal.counter.v2", "supportRequestPortal.counter.v1"];
-const AGENTS_KEY = "supportRequestPortal.agents.v3";
-const CURRENT_AGENT_KEY = "supportRequestPortal.currentAgentId.v3";
-const MAX_ATTACHMENT_BYTES = 2.5 * 1024 * 1024;
-const RESOLVED_AUTO_CLOSE_DAYS = 14;
+const CONFIG = window.SUPPORT_PORTAL_CONFIG || {};
+const SUPABASE_URL = CONFIG.SUPABASE_URL;
+const SUPABASE_KEY = CONFIG.SUPABASE_PUBLISHABLE_KEY || CONFIG.SUPABASE_ANON_KEY;
+const BUCKET = "case-attachments";
+const SESSION_TOKEN_KEY = "supportRequestPortal.supabase.agentToken.v4";
+const SESSION_AGENT_KEY = "supportRequestPortal.supabase.agent.v4";
 const OPEN_STATUSES = ["New", "In Progress", "Waiting on Customer"];
 const CATEGORIES = ["ICT", "Finance Service", "Human Resources"];
-const DEFAULT_AGENT = {
-  id: "agent-luke-mcguiness",
-  firstName: "Luke",
-  lastName: "McGuiness",
-  email: "Luke2003@outlook.com.au",
-  password: "1234",
-};
 
-let requests = normaliseRequests(loadRequests());
-let agents = normaliseAgents(loadAgents());
-let selectedRequestId = null;
-let selectedCustomerRequestId = null;
-let customerSearchEmail = "";
-let updateType = "reply";
-let pendingResolveRequestId = null;
-let pendingRequesterReopenId = null;
-let currentAgentId = sessionStorage.getItem(CURRENT_AGENT_KEY) || "";
+let supabaseClient = null;
+let currentAgent = loadSessionAgent();
+let currentToken = sessionStorage.getItem(SESSION_TOKEN_KEY) || "";
+let selectedAgentCaseId = null;
+let selectedAgentCase = null;
+let selectedAgentMessages = [];
+let selectedAgentAttachments = [];
+let selectedCustomerCase = null;
+let selectedCustomerMessages = [];
+let selectedCustomerAttachments = [];
+let pendingResolveCaseId = null;
+let pendingRequesterReopenCase = null;
+let pendingReplyCase = null;
+let cachedAgents = [];
+let cachedCases = [];
+
+const $ = (id) => document.getElementById(id);
 
 const navButtons = document.querySelectorAll(".nav-btn");
 const pageSections = document.querySelectorAll(".page-section");
-const supportForm = document.getElementById("support-form");
-const fileInput = document.getElementById("request-attachments");
-const selectedFiles = document.getElementById("selected-files");
-const successBox = document.getElementById("submission-success");
-const searchInput = document.getElementById("search-requests");
-const statusFilter = document.getElementById("status-filter");
-const categoryFilter = document.getElementById("category-filter");
-const requestList = document.getElementById("request-list");
-const requestDetail = document.getElementById("request-detail");
-const detailTemplate = document.getElementById("request-detail-template");
-const exportButton = document.getElementById("export-data");
-const importInput = document.getElementById("import-data");
-const clearButton = document.getElementById("clear-data");
-const settingsButton = document.getElementById("settings-button");
-const statTotal = document.getElementById("stat-total");
-const statOpen = document.getElementById("stat-open");
-const statResolved = document.getElementById("stat-resolved");
+const supportForm = $("support-form");
+const fileInput = $("request-attachments");
+const selectedFiles = $("selected-files");
+const successBox = $("submission-success");
+const searchInput = $("search-requests");
+const statusFilter = $("status-filter");
+const categoryFilter = $("category-filter");
+const requestList = $("request-list");
+const requestDetail = $("request-detail");
+const exportButton = $("export-data");
+const importInput = $("import-data");
+const clearButton = $("clear-data");
+const settingsButton = $("settings-button");
+const statTotal = $("stat-total");
+const statOpen = $("stat-open");
+const statResolved = $("stat-resolved");
+const agentLoginCard = $("agent-login-card");
+const agentWorkspace = $("agent-workspace");
+const agentLoginForm = $("agent-login-form");
+const agentLoginSelect = $("agent-login-select");
+const agentLoginPassword = $("agent-login-password");
+const agentLoginError = $("agent-login-error");
+const currentAgentName = $("current-agent-name");
+const agentLogoutButton = $("agent-logout");
+const agentForm = $("agent-form");
+const agentList = $("agent-list");
+const backToAgentInbox = $("back-to-agent-inbox");
+const customerSearchForm = $("customer-search-form");
+const customerCaseNumberSearch = $("customer-case-number-search");
+const customerEmailSearch = $("customer-email-search");
+const customerRequestList = $("customer-request-list");
+const customerRequestDetail = $("customer-request-detail");
+const resolutionModal = $("resolution-modal");
+const resolutionForm = $("resolution-form");
+const resolutionNotes = $("resolution-notes");
+const reopenModal = $("reopen-modal");
+const reopenForm = $("reopen-form");
+const reopenReason = $("reopen-reason");
+const replyModal = $("reply-modal");
+const replyForm = $("reply-form");
+const replyToEmails = $("reply-to-emails");
+const replyCcEmails = $("reply-cc-emails");
+const replySubject = $("reply-subject");
+const replyBody = $("reply-body");
+const replyAttachments = $("reply-attachments");
+const replyFileList = $("reply-file-list");
 
-const agentLoginCard = document.getElementById("agent-login-card");
-const agentWorkspace = document.getElementById("agent-workspace");
-const agentLoginForm = document.getElementById("agent-login-form");
-const agentLoginSelect = document.getElementById("agent-login-select");
-const agentLoginPassword = document.getElementById("agent-login-password");
-const agentLoginError = document.getElementById("agent-login-error");
-const currentAgentName = document.getElementById("current-agent-name");
-const agentLogoutButton = document.getElementById("agent-logout");
-const agentForm = document.getElementById("agent-form");
-const agentList = document.getElementById("agent-list");
-const backToAgentInbox = document.getElementById("back-to-agent-inbox");
+init().catch((error) => showFatalError(error));
 
-const customerSearchForm = document.getElementById("customer-search-form");
-const customerEmailSearch = document.getElementById("customer-email-search");
-const customerStatusFilter = document.getElementById("customer-status-filter");
-const customerRequestList = document.getElementById("customer-request-list");
-const customerRequestDetail = document.getElementById("customer-request-detail");
-const customerDetailTemplate = document.getElementById("customer-detail-template");
+async function init() {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    throw new Error("Supabase configuration is missing. Check config.js.");
+  }
+  if (!window.supabase || typeof window.supabase.createClient !== "function") {
+    throw new Error("Supabase client library did not load. Check your internet connection or CDN access.");
+  }
 
-const resolutionModal = document.getElementById("resolution-modal");
-const resolutionForm = document.getElementById("resolution-form");
-const resolutionNotes = document.getElementById("resolution-notes");
-const reopenModal = document.getElementById("reopen-modal");
-const reopenForm = document.getElementById("reopen-form");
-const reopenReason = document.getElementById("reopen-reason");
-
-navButtons.forEach((button) => {
-  button.addEventListener("click", () => switchSection(button.dataset.target));
-});
-
-fileInput.addEventListener("change", () => renderFileSelection(fileInput, selectedFiles));
-supportForm.addEventListener("submit", handleSupportSubmit);
-searchInput.addEventListener("input", renderInbox);
-statusFilter.addEventListener("change", renderInbox);
-categoryFilter.addEventListener("change", renderInbox);
-exportButton.addEventListener("click", exportRequests);
-importInput.addEventListener("change", importRequests);
-clearButton.addEventListener("click", clearRequests);
-settingsButton.addEventListener("click", () => {
-  switchSection("settings-section");
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  bindEvents();
+  await loadAgents();
+  renderAgentArea();
+  renderCustomerEmpty();
+  await refreshInboxIfLoggedIn();
   renderSettings();
-});
-backToAgentInbox.addEventListener("click", () => switchSection("agent-section"));
+}
 
-agentLoginForm.addEventListener("submit", handleAgentLogin);
-agentLogoutButton.addEventListener("click", handleAgentLogout);
-agentForm.addEventListener("submit", handleAddAgent);
-customerSearchForm.addEventListener("submit", handleCustomerSearch);
-customerStatusFilter.addEventListener("change", renderCustomerPortal);
-resolutionForm.addEventListener("submit", handleResolveSubmit);
-reopenForm.addEventListener("submit", handleRequesterReopenSubmit);
-
-document.querySelectorAll("[data-close-modal]").forEach((button) => {
-  button.addEventListener("click", () => closeModal(button.dataset.closeModal));
-});
-
-[resolutionModal, reopenModal].forEach((modal) => {
-  modal.addEventListener("click", (event) => {
-    if (event.target === modal) closeModal(modal.id);
+function bindEvents() {
+  navButtons.forEach((button) => {
+    button.addEventListener("click", () => switchSection(button.dataset.target));
   });
-});
 
-ensureDefaultAgentAvailable();
-const initialAutoClosedCount = autoCloseResolvedRequests();
-if (initialAutoClosedCount > 0) saveRequests();
-else saveRequests();
-populateAgentLoginSelect();
-renderAgentArea();
-renderInbox();
-renderCustomerPortal();
-renderSettings();
+  fileInput?.addEventListener("change", () => renderFileSelection(fileInput, selectedFiles));
+  supportForm?.addEventListener("submit", handleSupportSubmit);
+  searchInput?.addEventListener("input", renderInboxFromCache);
+  statusFilter?.addEventListener("change", refreshInboxIfLoggedIn);
+  categoryFilter?.addEventListener("change", refreshInboxIfLoggedIn);
+  exportButton?.addEventListener("click", () => showToast("Export is not available in the Supabase backend version. Use Supabase Table Editor or SQL exports instead."));
+  importInput?.addEventListener("change", () => showToast("Import is not available in the Supabase backend version."));
+  clearButton?.addEventListener("click", () => showToast("Clear All is disabled in the Supabase backend version to avoid deleting live data accidentally."));
+  settingsButton?.addEventListener("click", () => {
+    switchSection("settings-section");
+    renderSettings();
+  });
+  backToAgentInbox?.addEventListener("click", () => switchSection("agent-section"));
+
+  agentLoginForm?.addEventListener("submit", handleAgentLogin);
+  agentLogoutButton?.addEventListener("click", handleAgentLogout);
+  agentForm?.addEventListener("submit", handleAddAgent);
+  customerSearchForm?.addEventListener("submit", handleCustomerLookup);
+  resolutionForm?.addEventListener("submit", handleResolveSubmit);
+  reopenForm?.addEventListener("submit", handleRequesterReopenSubmit);
+  replyForm?.addEventListener("submit", handleReplySubmit);
+  replyAttachments?.addEventListener("change", () => renderFileSelection(replyAttachments, replyFileList));
+
+  document.querySelectorAll("[data-close-modal]").forEach((button) => {
+    button.addEventListener("click", () => closeModal(button.dataset.closeModal));
+  });
+
+  [resolutionModal, reopenModal, replyModal].forEach((modal) => {
+    modal?.addEventListener("click", (event) => {
+      if (event.target === modal) closeModal(modal.id);
+    });
+  });
+}
 
 function switchSection(targetId) {
   navButtons.forEach((button) => button.classList.toggle("active", button.dataset.target === targetId));
@@ -125,1226 +139,787 @@ function switchSection(targetId) {
   if (targetId === "settings-section") renderSettings();
 }
 
-function loadRequests() {
+async function rpc(name, args = {}) {
+  const { data, error } = await supabaseClient.rpc(name, args);
+  if (error) throw new Error(error.message || `Supabase RPC failed: ${name}`);
+  if (data && data.success === false) throw new Error(data.message || `Request failed: ${name}`);
+  return data;
+}
+
+async function loadAgents() {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY) || LEGACY_STORAGE_KEYS.map((key) => localStorage.getItem(key)).find(Boolean);
-    return stored ? JSON.parse(stored) : [];
+    const data = await rpc("list_active_agents");
+    cachedAgents = data.agents || [];
+    populateAgentLoginSelect();
   } catch (error) {
-    console.error("Could not load requests", error);
-    return [];
+    cachedAgents = [];
+    populateAgentLoginSelect(error.message);
   }
 }
 
-function saveRequests() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(requests));
-    LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
-  } catch (error) {
-    console.error("Could not save requests", error);
+function populateAgentLoginSelect(errorMessage = "") {
+  if (!agentLoginSelect) return;
+  if (errorMessage) {
+    agentLoginSelect.innerHTML = `<option value="">Could not load agents</option>`;
+    showLoginError(errorMessage);
+    return;
   }
-}
-
-function loadAgents() {
-  try {
-    const stored = localStorage.getItem(AGENTS_KEY);
-    return stored ? JSON.parse(stored) : [{ ...DEFAULT_AGENT }];
-  } catch (error) {
-    console.error("Could not load agents", error);
-    return [{ ...DEFAULT_AGENT }];
+  if (!cachedAgents.length) {
+    agentLoginSelect.innerHTML = `<option value="">No active agents found</option>`;
+    return;
   }
-}
-
-function saveAgents() {
-  try {
-    localStorage.setItem(AGENTS_KEY, JSON.stringify(agents));
-  } catch (error) {
-    console.error("Could not save agents", error);
-  }
-}
-
-function createId() {
-  if (window.crypto && typeof window.crypto.randomUUID === "function") {
-    return window.crypto.randomUUID();
-  }
-  return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function normaliseAgents(items) {
-  const source = Array.isArray(items) ? items : [];
-  const cleaned = source
-    .filter((agent) => agent && agent.firstName && agent.lastName && agent.email)
-    .map((agent) => ({
-      id: agent.id || createId(),
-      firstName: String(agent.firstName).trim(),
-      lastName: String(agent.lastName).trim(),
-      email: String(agent.email).trim(),
-      password: String(agent.password ?? ""),
-    }))
-    .filter((agent) => agent.firstName && agent.lastName && agent.email);
-
-  const defaultEmail = DEFAULT_AGENT.email.toLowerCase();
-  const existingDefault = cleaned.find((agent) => agent.email.toLowerCase() === defaultEmail);
-  if (!existingDefault) {
-    cleaned.unshift({ ...DEFAULT_AGENT });
-  } else {
-    existingDefault.id = existingDefault.id || DEFAULT_AGENT.id;
-    existingDefault.password = existingDefault.password || DEFAULT_AGENT.password;
-  }
-
-  return cleaned;
-}
-
-function ensureDefaultAgentAvailable() {
-  agents = normaliseAgents(agents);
-  if (!agents.length) agents = [{ ...DEFAULT_AGENT }];
-  if (currentAgentId && !agents.some((agent) => agent.id === currentAgentId)) {
-    currentAgentId = "";
-    sessionStorage.removeItem(CURRENT_AGENT_KEY);
-  }
-  saveAgents();
-}
-
-function normaliseRequests(items) {
-  if (!Array.isArray(items)) return [];
-  return items.map((request) => {
-    const now = new Date().toISOString();
-    const createdAt = request.createdAt || now;
-    const activity = Array.isArray(request.activity) ? request.activity.map((entry) => ({
-      id: entry.id || createId(),
-      type: entry.type || "system",
-      author: entry.author || "System",
-      text: entry.text || "",
-      createdAt: entry.createdAt || createdAt,
-      audience: entry.audience || inferAudience(entry.type),
-      attachments: Array.isArray(entry.attachments) ? entry.attachments : [],
-    })) : [];
-
-    if (!activity.length) {
-      activity.push({
-        id: createId(),
-        type: "system",
-        author: "System",
-        text: "Request created.",
-        createdAt,
-        audience: "customer",
-        attachments: [],
-      });
-    }
-
-    return {
-      id: request.id || createId(),
-      requestNumber: request.requestNumber || getNextRequestNumber(),
-      status: request.status || "New",
-      createdAt,
-      updatedAt: request.updatedAt || createdAt,
-      resolvedAt: request.resolvedAt || null,
-      closedAt: request.closedAt || null,
-      requesterName: request.requesterName || "Unknown requester",
-      requesterEmail: request.requesterEmail || "",
-      category: CATEGORIES.includes(request.category) ? request.category : "ICT",
-      subject: request.subject || "Untitled request",
-      details: request.details || "",
-      attachments: Array.isArray(request.attachments) ? request.attachments : [],
-      assignedAgentId: request.assignedAgentId || null,
-      activity,
-    };
-  });
-}
-
-function inferAudience(type) {
-  if (type === "note" || type === "assignment") return "internal";
-  if (["reply", "resolution", "customer-reply", "reopen"].includes(type)) return "customer";
-  return "customer";
-}
-
-function getNextRequestNumber() {
-  const storedCounter = localStorage.getItem(COUNTER_KEY) || LEGACY_COUNTER_KEYS.map((key) => localStorage.getItem(key)).find(Boolean) || "0";
-  const current = Number(storedCounter) + 1;
-  localStorage.setItem(COUNTER_KEY, String(current));
-  LEGACY_COUNTER_KEYS.forEach((key) => localStorage.removeItem(key));
-  return `REQ-${String(current).padStart(5, "0")}`;
-}
-
-function formatDateTime(value) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function formatFileSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function addDays(dateString, days) {
-  const date = new Date(dateString);
-  date.setDate(date.getDate() + days);
-  return date;
-}
-
-function isOpenStatus(status) {
-  return OPEN_STATUSES.includes(status);
-}
-
-function getCurrentAgent() {
-  return agents.find((agent) => agent.id === currentAgentId) || null;
-}
-
-function getAgentById(agentId) {
-  return agents.find((agent) => agent.id === agentId) || null;
-}
-
-function displayAgentName(agent) {
-  if (!agent) return "Agent";
-  const initial = agent.lastName ? `${agent.lastName.trim().charAt(0).toUpperCase()}` : "";
-  return initial ? `${agent.firstName} ${initial}` : agent.firstName;
-}
-
-function fullAgentName(agent) {
-  if (!agent) return "Unassigned";
-  return `${agent.firstName} ${agent.lastName}`.trim();
-}
-
-function autoCloseResolvedRequests() {
-  const now = new Date();
-  let closedCount = 0;
-
-  requests.forEach((request) => {
-    if (request.status !== "Resolved" || !request.resolvedAt) return;
-    const closeDate = addDays(request.resolvedAt, RESOLVED_AUTO_CLOSE_DAYS);
-    if (closeDate > now) return;
-
-    const nowIso = now.toISOString();
-    request.status = "Closed";
-    request.closedAt = nowIso;
-    request.updatedAt = nowIso;
-    request.activity.push({
-      id: createId(),
-      type: "system",
-      author: "System",
-      text: "Case automatically closed after being resolved for 14 days. This closed case cannot be re-opened; please raise a new support request if further help is needed.",
-      createdAt: nowIso,
-      audience: "customer",
-      attachments: [],
-    });
-    closedCount += 1;
-  });
-
-  return closedCount;
-}
-
-function renderFileSelection(input, list) {
-  list.innerHTML = "";
-  const files = [...input.files];
-  if (!files.length) return;
-  files.forEach((file) => {
-    const item = document.createElement("li");
-    item.innerHTML = `<span>${escapeHtml(file.name)}</span><span>${formatFileSize(file.size)}</span>`;
-    list.appendChild(item);
-  });
-}
-
-function validateAttachmentSize(files) {
-  const totalAttachmentSize = files.reduce((total, file) => total + file.size, 0);
-  if (totalAttachmentSize > MAX_ATTACHMENT_BYTES) {
-    alert(`Attachments are too large for this browser-only demo. Please keep the total under ${formatFileSize(MAX_ATTACHMENT_BYTES)}.`);
-    return false;
-  }
-  return true;
+  agentLoginSelect.innerHTML = cachedAgents
+    .map((agent) => `<option value="${escapeHtml(agent.email)}">${escapeHtml(agent.first_name)} ${escapeHtml(agent.last_name)} · ${escapeHtml(agent.email)}</option>`)
+    .join("");
 }
 
 async function handleSupportSubmit(event) {
   event.preventDefault();
+  setFormBusy(supportForm, true);
+  try {
+    const form = new FormData(supportForm);
+    const files = Array.from(fileInput.files || []);
+    const data = await rpc("create_support_request", {
+      p_customer_name: form.get("requesterName"),
+      p_customer_email: form.get("requesterEmail"),
+      p_category: form.get("category"),
+      p_subject: form.get("subject"),
+      p_description: form.get("details"),
+    });
 
-  const formData = new FormData(supportForm);
-  const files = [...fileInput.files];
-  if (!validateAttachmentSize(files)) return;
+    if (files.length) {
+      await uploadCustomerAttachments(files, {
+        caseNumber: data.case_number,
+        customerEmail: form.get("requesterEmail"),
+        messageId: null,
+        folder: "initial-request",
+      });
+    }
 
-  const now = new Date().toISOString();
-  const newRequest = {
-    id: createId(),
-    requestNumber: getNextRequestNumber(),
-    status: "New",
-    createdAt: now,
-    updatedAt: now,
-    resolvedAt: null,
-    closedAt: null,
-    requesterName: String(formData.get("requesterName")).trim(),
-    requesterEmail: String(formData.get("requesterEmail")).trim(),
-    category: String(formData.get("category")).trim(),
-    subject: String(formData.get("subject")).trim(),
-    details: String(formData.get("details")).trim(),
-    attachments: await readAttachments(files),
-    assignedAgentId: null,
-    activity: [
-      {
-        id: createId(),
-        type: "system",
-        author: "System",
-        text: "Request created.",
-        createdAt: now,
-        audience: "customer",
-        attachments: [],
-      },
-    ],
-  };
+    supportForm.reset();
+    renderFileSelection(fileInput, selectedFiles);
+    successBox.classList.remove("hidden");
+    successBox.innerHTML = `<strong>Request submitted.</strong><br>Your case number is <strong>${escapeHtml(data.case_number)}</strong>. Use this case number and your email address to track it.`;
+    if (currentToken) await refreshInboxIfLoggedIn();
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setFormBusy(supportForm, false);
+  }
+}
 
-  requests.unshift(newRequest);
-  selectedRequestId = newRequest.id;
-  selectedCustomerRequestId = newRequest.id;
-  customerSearchEmail = newRequest.requesterEmail.toLowerCase();
-  customerEmailSearch.value = newRequest.requesterEmail;
-  saveRequests();
-  supportForm.reset();
-  selectedFiles.innerHTML = "";
+async function handleCustomerLookup(event) {
+  event.preventDefault();
+  const caseNumber = customerCaseNumberSearch.value.trim();
+  const email = customerEmailSearch.value.trim();
+  if (!caseNumber || !email) return;
 
-  successBox.classList.remove("hidden");
-  successBox.innerHTML = `
-    <strong>Request submitted: ${newRequest.requestNumber}</strong>
-    <p>${escapeHtml(newRequest.subject)} has been added to the agent inbox. You can track it from the Track My Requests page.</p>
+  customerRequestList.innerHTML = `<div class="no-results">Searching...</div>`;
+  renderCustomerLoading();
+  try {
+    const data = await rpc("lookup_customer_case", {
+      p_case_number: caseNumber,
+      p_customer_email: email,
+    });
+    selectedCustomerCase = data.case;
+    selectedCustomerMessages = data.messages || [];
+    selectedCustomerAttachments = data.attachments || [];
+    renderCustomerCaseSummary();
+    renderCustomerDetail();
+  } catch (error) {
+    selectedCustomerCase = null;
+    selectedCustomerMessages = [];
+    selectedCustomerAttachments = [];
+    customerRequestList.innerHTML = `<div class="no-results">${escapeHtml(error.message)}</div>`;
+    renderCustomerEmpty("No matching request found", "Check the case number and email address, then try again.");
+  }
+}
+
+function renderCustomerLoading() {
+  customerRequestDetail.className = "card detail-panel empty-state";
+  customerRequestDetail.innerHTML = `<div class="empty-illustration">⌛</div><h3>Searching</h3><p>Looking up your case...</p>`;
+}
+
+function renderCustomerEmpty(title = "Track a request", message = "Search using your case number and the email address used when the request was raised.") {
+  if (!customerRequestDetail) return;
+  customerRequestDetail.className = "card detail-panel empty-state";
+  customerRequestDetail.innerHTML = `<div class="empty-illustration">🔎</div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p>`;
+}
+
+function renderCustomerCaseSummary() {
+  if (!selectedCustomerCase) return;
+  customerRequestList.innerHTML = `
+    <button type="button" class="request-item active">
+      <span class="request-number">${escapeHtml(selectedCustomerCase.case_number)}</span>
+      <strong>${escapeHtml(selectedCustomerCase.subject)}</strong>
+      <span>${escapeHtml(selectedCustomerCase.status)} · ${escapeHtml(selectedCustomerCase.category)}</span>
+    </button>
+  `;
+}
+
+function renderCustomerDetail() {
+  const c = selectedCustomerCase;
+  if (!c) return renderCustomerEmpty();
+  const isClosed = c.status === "Closed";
+  const isResolved = c.status === "Resolved";
+  const canCustomerReply = !isClosed && !isResolved;
+  const attachmentsByMessage = groupAttachmentsByMessage(selectedCustomerAttachments);
+  const initialAttachments = selectedCustomerAttachments.filter((a) => !a.message_id);
+  const visibleMessages = selectedCustomerMessages.filter((m) => m.visible_to_customer !== false);
+
+  customerRequestDetail.className = "card detail-panel";
+  customerRequestDetail.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <p class="eyebrow">${escapeHtml(c.case_number)}</p>
+        <h3>${escapeHtml(c.subject)}</h3>
+        <p class="request-meta">Submitted ${formatDate(c.created_at)} · ${escapeHtml(c.customer_email)}</p>
+      </div>
+      <span class="status-pill ${statusClass(c.status)}">${escapeHtml(c.status)}</span>
+    </div>
+    ${isClosed ? `<div class="customer-case-alert warning-box">This case is closed and cannot be re-opened. Please raise a new support request if you need more help.</div>` : ""}
+    ${isResolved ? `<div class="customer-case-alert success-box inline-box">This case is resolved. You can re-open it from this portal if it still needs work.</div>` : ""}
+    <div class="detail-grid">
+      <section><h4>Category</h4><p>${escapeHtml(c.category)}</p></section>
+      <section><h4>Submitted by</h4><p>${escapeHtml(c.customer_name)}<br>${escapeHtml(c.customer_email)}</p></section>
+    </div>
+    <section class="request-message"><h4>Your request</h4><p>${escapeHtml(c.description)}</p></section>
+    <section class="attachments-section"><h4>Your attachments</h4>${renderAttachmentList(initialAttachments)}</section>
+    <section class="timeline-section customer-messages-section">
+      <h4>Messages sent to you</h4>
+      <div class="timeline">${renderTimeline(visibleMessages, attachmentsByMessage, true)}</div>
+    </section>
+    <section class="update-panel customer-reply-panel">
+      <h4>Reply to this case</h4>
+      <textarea id="customer-reply-text" rows="5" placeholder="Type your reply here or attach files..." ${canCustomerReply ? "" : "disabled"}></textarea>
+      <div class="form-row compact attachment-input-row">
+        <label for="customer-reply-attachments">Attach files</label>
+        <input id="customer-reply-attachments" type="file" multiple ${canCustomerReply ? "" : "disabled"} />
+        <ul id="customer-reply-file-list" class="file-list" aria-live="polite"></ul>
+      </div>
+      <div class="reply-actions">
+        <button id="customer-add-reply" type="button" class="primary-btn" ${canCustomerReply ? "" : "disabled"}>Send Reply</button>
+        <button id="customer-reopen-case" type="button" class="secondary-btn ${isResolved ? "" : "hidden"}">Re-open case</button>
+      </div>
+      <p class="hint">${isClosed ? "Closed cases cannot be replied to." : isResolved ? "Re-open the case if more work is needed." : "Your reply and attachments will be saved to the case."}</p>
+    </section>
   `;
 
-  renderInbox();
-  renderCustomerPortal();
+  const customerReplyAttachments = $("customer-reply-attachments");
+  const customerReplyFileList = $("customer-reply-file-list");
+  customerReplyAttachments?.addEventListener("change", () => renderFileSelection(customerReplyAttachments, customerReplyFileList));
+  $("customer-add-reply")?.addEventListener("click", handleCustomerReplySubmit);
+  $("customer-reopen-case")?.addEventListener("click", () => openRequesterReopenModal(c));
+  bindDownloadButtons(customerRequestDetail);
 }
 
-function readAttachments(files) {
-  return Promise.all(files.map((file) => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve({
-      id: createId(),
-      name: file.name,
-      type: file.type || "application/octet-stream",
-      size: file.size,
-      dataUrl: reader.result,
+async function handleCustomerReplySubmit() {
+  if (!selectedCustomerCase) return;
+  const textarea = $("customer-reply-text");
+  const attachmentInput = $("customer-reply-attachments");
+  const body = textarea.value.trim();
+  const files = Array.from(attachmentInput.files || []);
+  if (!body && !files.length) {
+    showToast("Add a reply or attach a file before sending.");
+    return;
+  }
+  try {
+    const data = await rpc("customer_add_reply", {
+      p_case_number: selectedCustomerCase.case_number,
+      p_customer_email: selectedCustomerCase.customer_email,
+      p_body: body || "Attached files.",
     });
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  })));
-}
-
-function renderAgentArea() {
-  const agent = getCurrentAgent();
-  populateAgentLoginSelect();
-
-  if (!agent) {
-    agentLoginCard.classList.remove("hidden");
-    agentWorkspace.classList.add("hidden");
-    return;
-  }
-
-  agentLoginCard.classList.add("hidden");
-  agentWorkspace.classList.remove("hidden");
-  currentAgentName.textContent = `${fullAgentName(agent)} (${agent.email})`;
-  renderInbox();
-}
-
-function populateAgentLoginSelect() {
-  if (!agentLoginSelect) return;
-
-  agents = normaliseAgents(agents);
-  const currentValue = agentLoginSelect.value;
-  agentLoginSelect.replaceChildren();
-
-  agents.forEach((agent) => {
-    const option = document.createElement("option");
-    option.value = agent.id;
-    option.textContent = `${fullAgentName(agent)} · ${agent.email}`;
-    agentLoginSelect.appendChild(option);
-  });
-
-  if (agents.some((agent) => agent.id === currentValue)) {
-    agentLoginSelect.value = currentValue;
-  } else if (agents.length > 0) {
-    agentLoginSelect.value = agents[0].id;
+    if (files.length) {
+      await uploadCustomerAttachments(files, {
+        caseNumber: selectedCustomerCase.case_number,
+        customerEmail: selectedCustomerCase.customer_email,
+        messageId: data.message_id,
+        folder: data.message_id,
+      });
+    }
+    await reloadCustomerCase();
+    showToast("Reply sent to the case.");
+  } catch (error) {
+    showToast(error.message);
   }
 }
 
-function handleAgentLogin(event) {
+function openRequesterReopenModal(caseData) {
+  pendingRequesterReopenCase = caseData;
+  reopenReason.value = "";
+  openModal("reopen-modal");
+}
+
+async function handleRequesterReopenSubmit(event) {
   event.preventDefault();
-  const agent = getAgentById(agentLoginSelect.value);
-  const password = agentLoginPassword.value;
-
-  if (!agent || agent.password !== password) {
-    agentLoginError.textContent = "The selected agent or password is incorrect.";
-    agentLoginError.classList.remove("hidden");
-    return;
+  if (!pendingRequesterReopenCase) return;
+  try {
+    await rpc("customer_reopen_case", {
+      p_case_number: pendingRequesterReopenCase.case_number,
+      p_customer_email: pendingRequesterReopenCase.customer_email,
+      p_reason: reopenReason.value.trim(),
+    });
+    closeModal("reopen-modal");
+    await reloadCustomerCase();
+    if (currentToken) await refreshInboxIfLoggedIn();
+    showToast("Case re-opened.");
+  } catch (error) {
+    showToast(error.message);
   }
+}
 
-  currentAgentId = agent.id;
-  sessionStorage.setItem(CURRENT_AGENT_KEY, currentAgentId);
-  agentLoginPassword.value = "";
-  agentLoginError.classList.add("hidden");
-  renderAgentArea();
+async function reloadCustomerCase() {
+  if (!selectedCustomerCase) return;
+  const data = await rpc("lookup_customer_case", {
+    p_case_number: selectedCustomerCase.case_number,
+    p_customer_email: selectedCustomerCase.customer_email,
+  });
+  selectedCustomerCase = data.case;
+  selectedCustomerMessages = data.messages || [];
+  selectedCustomerAttachments = data.attachments || [];
+  renderCustomerCaseSummary();
+  renderCustomerDetail();
+}
+
+async function handleAgentLogin(event) {
+  event.preventDefault();
+  hideLoginError();
+  const email = agentLoginSelect.value;
+  const password = agentLoginPassword.value;
+  if (!email || !password) return;
+
+  try {
+    const data = await rpc("agent_login", { p_email: email, p_password: password });
+    currentToken = data.token;
+    currentAgent = data.agent;
+    sessionStorage.setItem(SESSION_TOKEN_KEY, currentToken);
+    sessionStorage.setItem(SESSION_AGENT_KEY, JSON.stringify(currentAgent));
+    agentLoginPassword.value = "";
+    renderAgentArea();
+    await refreshInboxIfLoggedIn();
+  } catch (error) {
+    showLoginError(error.message);
+  }
 }
 
 function handleAgentLogout() {
-  currentAgentId = "";
-  sessionStorage.removeItem(CURRENT_AGENT_KEY);
-  selectedRequestId = null;
+  currentToken = "";
+  currentAgent = null;
+  selectedAgentCaseId = null;
+  selectedAgentCase = null;
+  cachedCases = [];
+  sessionStorage.removeItem(SESSION_TOKEN_KEY);
+  sessionStorage.removeItem(SESSION_AGENT_KEY);
   renderAgentArea();
-  renderEmptyDetail();
 }
 
-function renderInbox() {
-  const closedCount = autoCloseResolvedRequests();
-  if (closedCount > 0) saveRequests();
-
-  if (!getCurrentAgent()) {
-    requestList.innerHTML = "";
-    renderCustomerPortal(false);
-    return;
+function renderAgentArea() {
+  const loggedIn = Boolean(currentToken && currentAgent);
+  agentLoginCard?.classList.toggle("hidden", loggedIn);
+  agentWorkspace?.classList.toggle("hidden", !loggedIn);
+  if (currentAgentName) {
+    currentAgentName.textContent = loggedIn ? `${currentAgent.first_name} ${currentAgent.last_name} · ${currentAgent.email}` : "";
   }
+  if (!loggedIn && requestDetail) {
+    requestDetail.className = "card detail-panel empty-state";
+    requestDetail.innerHTML = `<div class="empty-illustration">🔐</div><h3>Agent login required</h3><p>Log in to view and manage support requests.</p>`;
+  }
+}
 
-  const filtered = getFilteredRequests();
-  requestList.innerHTML = "";
+async function refreshInboxIfLoggedIn() {
+  if (!currentToken || !currentAgent) return;
+  await loadAgents();
+  try {
+    const data = await rpc("list_agent_cases", {
+      p_token: currentToken,
+      p_status_filter: statusFilter.value || "Open",
+      p_category_filter: categoryFilter.value || "All Categories",
+    });
+    cachedCases = data.cases || [];
+    renderInboxFromCache();
+    if (selectedAgentCaseId) await openAgentCase(selectedAgentCaseId, false);
+  } catch (error) {
+    if (/expired|invalid/i.test(error.message)) handleAgentLogout();
+    showToast(error.message);
+  }
+}
 
-  const total = requests.length;
-  const open = requests.filter((request) => isOpenStatus(request.status)).length;
-  const resolved = requests.filter((request) => request.status === "Resolved").length;
+function renderInboxFromCache() {
+  const query = (searchInput.value || "").toLowerCase().trim();
+  const filtered = cachedCases.filter((item) => {
+    if (!query) return true;
+    return [item.case_number, item.customer_name, item.customer_email, item.subject, item.category, item.status, item.assigned_agent_display]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query));
+  });
 
-  statTotal.textContent = total;
-  statOpen.textContent = open;
-  statResolved.textContent = resolved;
+  statTotal.textContent = String(cachedCases.length);
+  statOpen.textContent = String(cachedCases.filter((c) => OPEN_STATUSES.includes(c.status)).length);
+  statResolved.textContent = String(cachedCases.filter((c) => c.status === "Resolved").length);
 
   if (!filtered.length) {
-    requestList.innerHTML = `<div class="no-results">No requests found.</div>`;
-  } else {
-    filtered.forEach((request) => requestList.appendChild(createRequestCard(request, "agent")));
-  }
-
-  if (selectedRequestId && requests.some((request) => request.id === selectedRequestId)) {
-    renderRequestDetail(selectedRequestId);
-  } else if (requests.length) {
-    selectedRequestId = null;
-    renderEmptyDetail();
-  } else {
-    selectedRequestId = null;
-    renderEmptyDetail();
-  }
-
-  renderCustomerPortal(false);
-}
-
-function getFilteredRequests() {
-  const term = searchInput.value.trim().toLowerCase();
-  const selectedStatus = statusFilter.value;
-  const selectedCategory = categoryFilter.value;
-  const agent = getCurrentAgent();
-
-  return requests.filter((request) => {
-    let statusMatches = false;
-    if (selectedStatus === "All") statusMatches = true;
-    else if (selectedStatus === "Open") statusMatches = isOpenStatus(request.status);
-    else if (selectedStatus === "AssignedToMe") statusMatches = Boolean(agent && request.assignedAgentId === agent.id);
-    else statusMatches = request.status === selectedStatus;
-
-    const categoryMatches = selectedCategory === "All" || request.category === selectedCategory;
-    const assignedAgent = getAgentById(request.assignedAgentId);
-    const searchable = [
-      request.requestNumber,
-      request.requesterName,
-      request.requesterEmail,
-      request.category,
-      request.subject,
-      request.details,
-      request.status,
-      assignedAgent ? fullAgentName(assignedAgent) : "Unassigned",
-    ].join(" ").toLowerCase();
-    return statusMatches && categoryMatches && searchable.includes(term);
-  });
-}
-
-function createRequestCard(request, mode) {
-  const button = document.createElement("button");
-  button.type = "button";
-  const activeId = mode === "customer" ? selectedCustomerRequestId : selectedRequestId;
-  button.className = `request-card ${request.id === activeId ? "active" : ""}`;
-  button.setAttribute("role", "listitem");
-  const assignedAgent = getAgentById(request.assignedAgentId);
-  const agentLine = mode === "agent" ? `<p>Assigned: ${escapeHtml(assignedAgent ? displayAgentName(assignedAgent) : "Unassigned")}</p>` : "";
-  button.innerHTML = `
-    <div class="request-card-top">
-      <span class="request-id">${escapeHtml(request.requestNumber)}</span>
-      <span class="status-pill ${statusClass(request.status)}">${escapeHtml(request.status)}</span>
-    </div>
-    <h3>${escapeHtml(request.subject)}</h3>
-    <p>${escapeHtml(mode === "customer" ? request.category : `${request.requesterName} · ${request.category}`)}</p>
-    ${agentLine}
-    <p>Updated ${formatDateTime(request.updatedAt)}</p>
-  `;
-  button.addEventListener("click", () => {
-    if (mode === "customer") {
-      selectedCustomerRequestId = request.id;
-      renderCustomerPortal(false);
-    } else {
-      selectedRequestId = request.id;
-      renderInbox();
-      renderRequestDetail(request.id);
-    }
-  });
-  return button;
-}
-
-function renderEmptyDetail() {
-  requestDetail.className = "card detail-panel empty-state";
-  requestDetail.innerHTML = `
-    <div class="empty-illustration">✉️</div>
-    <h3>Select a request</h3>
-    <p>Open a request from the inbox to start working on it.</p>
-  `;
-}
-
-function renderRequestDetail(requestId) {
-  const request = requests.find((item) => item.id === requestId);
-  const agent = getCurrentAgent();
-  if (!request || !agent) {
-    renderEmptyDetail();
+    requestList.innerHTML = `<div class="no-results">No matching cases found.</div>`;
     return;
   }
+
+  requestList.innerHTML = filtered.map((item) => `
+    <button type="button" class="request-item ${item.id === selectedAgentCaseId ? "active" : ""}" data-case-id="${escapeHtml(item.id)}">
+      <span class="request-number">${escapeHtml(item.case_number)}</span>
+      <strong>${escapeHtml(item.subject)}</strong>
+      <span>${escapeHtml(item.customer_name)} · ${escapeHtml(item.category)}</span>
+      <span>${escapeHtml(item.status)}${item.assigned_agent_display ? ` · Assigned to ${escapeHtml(item.assigned_agent_display)}` : ""}</span>
+    </button>
+  `).join("");
+
+  requestList.querySelectorAll("[data-case-id]").forEach((button) => {
+    button.addEventListener("click", () => openAgentCase(button.dataset.caseId));
+  });
+}
+
+async function openAgentCase(caseId, showLoading = true) {
+  if (!currentToken) return;
+  selectedAgentCaseId = caseId;
+  if (showLoading) {
+    requestDetail.className = "card detail-panel empty-state";
+    requestDetail.innerHTML = `<div class="empty-illustration">⌛</div><h3>Loading case</h3><p>Retrieving case details...</p>`;
+  }
+  try {
+    const data = await rpc("get_agent_case", { p_token: currentToken, p_case_id: caseId });
+    selectedAgentCase = data.case;
+    selectedAgentMessages = data.messages || [];
+    selectedAgentAttachments = data.attachments || [];
+    renderAgentCaseDetail();
+    renderInboxFromCache();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+function renderAgentCaseDetail() {
+  const c = selectedAgentCase;
+  if (!c) return;
+  const isClosed = c.status === "Closed";
+  const isResolved = c.status === "Resolved";
+  const attachmentsByMessage = groupAttachmentsByMessage(selectedAgentAttachments);
+  const initialAttachments = selectedAgentAttachments.filter((a) => !a.message_id);
 
   requestDetail.className = "card detail-panel";
-  requestDetail.innerHTML = "";
-  const content = detailTemplate.content.cloneNode(true);
-
-  content.querySelector(".request-number").textContent = request.requestNumber;
-  content.querySelector(".detail-subject").textContent = request.subject;
-  content.querySelector(".request-meta").textContent = getRequestMetaText(request);
-
-  const statusPill = content.querySelector(".status-pill");
-  statusPill.textContent = request.status;
-  statusPill.classList.add(statusClass(request.status));
-
-  content.querySelector(".requester-info").innerHTML = `${escapeHtml(request.requesterName)}<br><a href="mailto:${encodeURIComponent(request.requesterEmail)}">${escapeHtml(request.requesterEmail)}</a>`;
-  content.querySelector(".details-text").textContent = request.details;
-
-  const categorySelect = content.querySelector("#agent-category-select");
-  categorySelect.innerHTML = CATEGORIES.map((category) => `<option${category === request.category ? " selected" : ""}>${escapeHtml(category)}</option>`).join("");
-  categorySelect.addEventListener("change", () => changeRequestCategory(request.id, categorySelect.value));
-
-  const assigneeSelect = content.querySelector("#agent-assignee-select");
-  populateAssigneeSelect(assigneeSelect, request.assignedAgentId);
-  assigneeSelect.addEventListener("change", () => assignRequest(request.id, assigneeSelect.value || null, false));
-
-  const attachmentsList = content.querySelector(".attachments-list");
-  renderAttachments(request.attachments, attachmentsList, "No attachments were included with this request.");
-
-  const statusActions = content.querySelector(".status-actions");
-  renderAgentStatusActions(request, statusActions);
-
-  const timeline = content.querySelector(".timeline");
-  renderTimeline(request.activity, timeline, "agent");
-
-  const addUpdateButton = content.querySelector("#add-update");
-  const updateText = content.querySelector("#agent-update-text");
-  const updateFiles = content.querySelector("#agent-update-attachments");
-  const updateFileList = content.querySelector("#agent-update-file-list");
-  const updatePanel = content.querySelector(".update-panel");
-
-  updateFiles.addEventListener("change", () => renderFileSelection(updateFiles, updateFileList));
-
-  content.querySelectorAll("[data-update-type]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.updateType === updateType);
-    button.addEventListener("click", () => {
-      updateType = button.dataset.updateType;
-      renderRequestDetail(request.id);
-    });
-  });
-
-  if (request.status === "Closed") {
-    updateText.disabled = true;
-    updateFiles.disabled = true;
-    addUpdateButton.disabled = true;
-    categorySelect.disabled = true;
-    assigneeSelect.disabled = true;
-    updatePanel.querySelector(".hint").textContent = "This case is closed and cannot be re-opened. Ask the customer to raise a new support request if more help is needed.";
-  } else {
-    addUpdateButton.addEventListener("click", () => addAgentUpdate(request.id));
-  }
-
-  requestDetail.appendChild(content);
-}
-
-function populateAssigneeSelect(select, selectedAgentId) {
-  select.innerHTML = `<option value="">Unassigned</option>` + agents.map((agent) => `<option value="${escapeHtml(agent.id)}"${agent.id === selectedAgentId ? " selected" : ""}>${escapeHtml(fullAgentName(agent))}</option>`).join("");
-}
-
-function getRequestMetaText(request) {
-  const parts = [`Created ${formatDateTime(request.createdAt)}`, `Updated ${formatDateTime(request.updatedAt)}`];
-  if (request.resolvedAt) parts.push(`Resolved ${formatDateTime(request.resolvedAt)}`);
-  if (request.closedAt) parts.push(`Closed ${formatDateTime(request.closedAt)}`);
-  return parts.join(" · ");
-}
-
-function renderAgentStatusActions(request, container) {
-  container.innerHTML = "";
-
-  if (request.status === "Closed") {
-    container.innerHTML = `<p class="closed-note">This case is closed and cannot be re-opened. A new support request is required for further help.</p>`;
-    return;
-  }
-
-  if (request.status === "Resolved") {
-    const reopenButton = makeActionButton("Re-open case", "secondary-btn", () => reopenCaseAsAgent(request.id));
-    const closeButton = makeActionButton("Close case", "secondary-btn", () => updateRequestStatus(request.id, "Closed"));
-    container.append(reopenButton, closeButton);
-    return;
-  }
-
-  const startButton = makeActionButton("Start Work", "secondary-btn", () => updateRequestStatus(request.id, "In Progress", { assignToCurrent: true }));
-  const waitingButton = makeActionButton("Waiting on Customer", "secondary-btn", () => updateRequestStatus(request.id, "Waiting on Customer"));
-  const resolveButton = makeActionButton("Resolve", "primary-btn", () => openResolveModal(request.id));
-
-  startButton.disabled = request.status === "In Progress" && request.assignedAgentId === currentAgentId;
-  waitingButton.disabled = request.status === "Waiting on Customer";
-  container.append(startButton, waitingButton, resolveButton);
-}
-
-function makeActionButton(label, className, onClick) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = className;
-  button.textContent = label;
-  button.addEventListener("click", onClick);
-  return button;
-}
-
-function renderAttachments(attachments, container, emptyMessage = "No attachments.") {
-  container.innerHTML = "";
-
-  if (!attachments || !attachments.length) {
-    container.innerHTML = `<p class="hint">${escapeHtml(emptyMessage)}</p>`;
-    return;
-  }
-
-  attachments.forEach((attachment) => {
-    const item = document.createElement("div");
-    item.className = "attachment-item";
-    item.innerHTML = `
-      <span>${escapeHtml(attachment.name)} <small>(${formatFileSize(attachment.size)})</small></span>
-      <a href="${attachment.dataUrl}" download="${escapeHtml(attachment.name)}">Download</a>
-    `;
-    container.appendChild(item);
-  });
-}
-
-function renderInlineAttachments(attachments) {
-  if (!attachments || !attachments.length) return "";
-  const items = attachments.map((attachment) => `
-    <div class="attachment-item timeline-attachment">
-      <span>${escapeHtml(attachment.name)} <small>(${formatFileSize(attachment.size)})</small></span>
-      <a href="${attachment.dataUrl}" download="${escapeHtml(attachment.name)}">Download</a>
+  requestDetail.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <p class="eyebrow">${escapeHtml(c.case_number)}</p>
+        <h3>${escapeHtml(c.subject)}</h3>
+        <p class="request-meta">Submitted ${formatDate(c.created_at)} · ${escapeHtml(c.customer_email)}</p>
+      </div>
+      <span class="status-pill ${statusClass(c.status)}">${escapeHtml(c.status)}</span>
     </div>
-  `).join("");
-  return `<div class="timeline-attachments"><strong>Attachments</strong>${items}</div>`;
-}
-
-function renderTimeline(activity, container, mode) {
-  container.innerHTML = "";
-
-  const visibleActivity = mode === "customer"
-    ? activity.filter((entry) => entry.audience !== "internal")
-    : activity;
-
-  if (!visibleActivity.length) {
-    container.innerHTML = `<p class="hint">No customer-facing messages have been sent yet.</p>`;
-    return;
-  }
-
-  [...visibleActivity].reverse().forEach((entry) => {
-    const item = document.createElement("div");
-    item.className = `timeline-item ${entry.type}`;
-    const title = activityTitle(entry, mode);
-    const audienceLabel = mode === "agent" && entry.audience === "customer" ? " · visible to customer" : "";
-    item.innerHTML = `
-      <strong>${escapeHtml(title)}</strong>
-      <span class="timeline-meta">${escapeHtml(entry.author)} · ${formatDateTime(entry.createdAt)}${audienceLabel}</span>
-      <p>${escapeHtml(entry.text)}</p>
-      ${renderInlineAttachments(entry.attachments)}
-    `;
-    container.appendChild(item);
-  });
-}
-
-function activityTitle(entry, mode) {
-  if (entry.type === "note") return "Internal note";
-  if (entry.type === "reply") return mode === "customer" ? "Message from support" : "Reply to Customer";
-  if (entry.type === "customer-reply") return "Customer reply";
-  if (entry.type === "resolution") return "Resolution notes";
-  if (entry.type === "reopen") return "Re-open request";
-  if (entry.type === "assignment") return "Assignment update";
-  if (entry.type === "category") return "Category update";
-  return "System update";
-}
-
-function updateRequestStatus(requestId, status, options = {}) {
-  const request = requests.find((item) => item.id === requestId);
-  const agent = getCurrentAgent();
-  if (!request || request.status === "Closed") return;
-
-  const now = new Date().toISOString();
-  request.status = status;
-  request.updatedAt = now;
-
-  if (options.assignToCurrent && agent) {
-    request.assignedAgentId = agent.id;
-  }
-
-  if (isOpenStatus(status)) {
-    request.resolvedAt = null;
-  }
-
-  if (status === "Resolved") {
-    request.resolvedAt = now;
-  }
-
-  if (status === "Closed") {
-    request.closedAt = now;
-    request.activity.push({
-      id: createId(),
-      type: "system",
-      author: agent ? displayAgentName(agent) : "Agent",
-      text: "Case closed. This case cannot be re-opened; please raise a new support request if more help is needed.",
-      createdAt: now,
-      audience: "customer",
-      attachments: [],
-    });
-  } else {
-    const assignmentText = options.assignToCurrent && agent ? ` Assigned to ${displayAgentName(agent)}.` : "";
-    request.activity.push({
-      id: createId(),
-      type: "system",
-      author: agent ? displayAgentName(agent) : "Agent",
-      text: `Status changed to ${status}.${assignmentText}`,
-      createdAt: now,
-      audience: "customer",
-      attachments: [],
-    });
-  }
-
-  saveAndRender(request.id);
-}
-
-function assignRequest(requestId, agentId, silentIfSame = true) {
-  const request = requests.find((item) => item.id === requestId);
-  const currentAgent = getCurrentAgent();
-  if (!request || request.status === "Closed") return;
-  if (silentIfSame && request.assignedAgentId === agentId) return;
-
-  const oldAgent = getAgentById(request.assignedAgentId);
-  const newAgent = getAgentById(agentId);
-  request.assignedAgentId = agentId || null;
-  request.updatedAt = new Date().toISOString();
-  request.activity.push({
-    id: createId(),
-    type: "assignment",
-    author: currentAgent ? displayAgentName(currentAgent) : "Agent",
-    text: `Assignment changed from ${oldAgent ? displayAgentName(oldAgent) : "Unassigned"} to ${newAgent ? displayAgentName(newAgent) : "Unassigned"}.`,
-    createdAt: request.updatedAt,
-    audience: "internal",
-    attachments: [],
-  });
-  saveAndRender(request.id);
-}
-
-function changeRequestCategory(requestId, newCategory) {
-  const request = requests.find((item) => item.id === requestId);
-  const currentAgent = getCurrentAgent();
-  if (!request || request.status === "Closed" || !CATEGORIES.includes(newCategory)) return;
-  if (request.category === newCategory) return;
-
-  const oldCategory = request.category;
-  request.category = newCategory;
-  request.updatedAt = new Date().toISOString();
-  request.activity.push({
-    id: createId(),
-    type: "category",
-    author: currentAgent ? displayAgentName(currentAgent) : "Agent",
-    text: `Category changed from ${oldCategory} to ${newCategory}.`,
-    createdAt: request.updatedAt,
-    audience: "internal",
-    attachments: [],
-  });
-  saveAndRender(request.id);
-}
-
-function openResolveModal(requestId) {
-  const request = requests.find((item) => item.id === requestId);
-  if (!request || request.status === "Closed") return;
-  pendingResolveRequestId = requestId;
-  resolutionNotes.value = "";
-  resolutionModal.classList.remove("hidden");
-  resolutionNotes.focus();
-}
-
-function handleResolveSubmit(event) {
-  event.preventDefault();
-  const notes = resolutionNotes.value.trim();
-  if (!notes || !pendingResolveRequestId) return;
-
-  const request = requests.find((item) => item.id === pendingResolveRequestId);
-  const agent = getCurrentAgent();
-  if (!request || request.status === "Closed") return;
-
-  const now = new Date().toISOString();
-  request.status = "Resolved";
-  request.updatedAt = now;
-  request.resolvedAt = now;
-  request.closedAt = null;
-  request.activity.push({
-    id: createId(),
-    type: "resolution",
-    author: agent ? displayAgentName(agent) : "Agent",
-    text: `Your case has been resolved. Resolution notes: ${notes}`,
-    createdAt: now,
-    audience: "customer",
-    attachments: [],
-  });
-
-  closeModal("resolution-modal");
-  saveAndRender(request.id);
-}
-
-async function addAgentUpdate(requestId) {
-  const textarea = requestDetail.querySelector("#agent-update-text");
-  const fileInputEl = requestDetail.querySelector("#agent-update-attachments");
-  const text = textarea.value.trim();
-  const files = [...fileInputEl.files];
-
-  if (!text && !files.length) {
-    alert("Please type an update or attach a file first.");
-    return;
-  }
-
-  if (!validateAttachmentSize(files)) return;
-
-  const request = requests.find((item) => item.id === requestId);
-  const agent = getCurrentAgent();
-  if (!request || request.status === "Closed") return;
-
-  const now = new Date().toISOString();
-  request.updatedAt = now;
-  if (!request.assignedAgentId && agent) request.assignedAgentId = agent.id;
-
-  request.activity.push({
-    id: createId(),
-    type: updateType,
-    author: agent ? displayAgentName(agent) : "Agent",
-    text: text || (files.length ? "Attached file(s)." : ""),
-    createdAt: now,
-    audience: updateType === "note" ? "internal" : "customer",
-    attachments: await readAttachments(files),
-  });
-
-  if (request.status === "New") {
-    request.status = "In Progress";
-    request.activity.push({
-      id: createId(),
-      type: "system",
-      author: "System",
-      text: "Status changed to In Progress after agent update.",
-      createdAt: now,
-      audience: "customer",
-      attachments: [],
-    });
-  }
-
-  saveAndRender(request.id);
-}
-
-function reopenCaseAsAgent(requestId) {
-  const request = requests.find((item) => item.id === requestId);
-  const agent = getCurrentAgent();
-  if (!request || request.status !== "Resolved") return;
-
-  const now = new Date().toISOString();
-  request.status = "In Progress";
-  request.updatedAt = now;
-  request.resolvedAt = null;
-  request.activity.push({
-    id: createId(),
-    type: "reopen",
-    author: agent ? displayAgentName(agent) : "Agent",
-    text: "Case re-opened by agent.",
-    createdAt: now,
-    audience: "customer",
-    attachments: [],
-  });
-
-  saveAndRender(request.id);
-}
-
-function handleCustomerSearch(event) {
-  event.preventDefault();
-  customerSearchEmail = customerEmailSearch.value.trim().toLowerCase();
-  selectedCustomerRequestId = null;
-  renderCustomerPortal();
-}
-
-function renderCustomerPortal(allowAutoClose = true) {
-  if (allowAutoClose) {
-    const closedCount = autoCloseResolvedRequests();
-    if (closedCount > 0) saveRequests();
-  }
-
-  if (!customerSearchEmail) {
-    customerRequestList.innerHTML = `<div class="no-results">Enter your email address to find your requests.</div>`;
-    renderEmptyCustomerDetail();
-    return;
-  }
-
-  const filtered = getCustomerFilteredRequests();
-  customerRequestList.innerHTML = "";
-
-  if (!filtered.length) {
-    customerRequestList.innerHTML = `<div class="no-results">No requests found for this email and status filter.</div>`;
-    selectedCustomerRequestId = null;
-    renderEmptyCustomerDetail("No request selected", "Try another status filter or check the email address used when raising the request.");
-    return;
-  }
-
-  if (!selectedCustomerRequestId || !filtered.some((request) => request.id === selectedCustomerRequestId)) {
-    selectedCustomerRequestId = filtered[0].id;
-  }
-
-  filtered.forEach((request) => customerRequestList.appendChild(createRequestCard(request, "customer")));
-  renderCustomerRequestDetail(selectedCustomerRequestId);
-}
-
-function getCustomerFilteredRequests() {
-  const selectedStatus = customerStatusFilter.value;
-  return requests.filter((request) => {
-    const emailMatches = request.requesterEmail.toLowerCase() === customerSearchEmail;
-    const statusMatches = selectedStatus === "All" || (selectedStatus === "Open" ? isOpenStatus(request.status) : request.status === selectedStatus);
-    return emailMatches && statusMatches;
-  });
-}
-
-function renderEmptyCustomerDetail(title = "Track a request", message = "Search using the email address used when the request was raised.") {
-  customerRequestDetail.className = "card detail-panel empty-state";
-  customerRequestDetail.innerHTML = `
-    <div class="empty-illustration">🔎</div>
-    <h3>${escapeHtml(title)}</h3>
-    <p>${escapeHtml(message)}</p>
+    <div class="status-actions top-action-row" aria-label="Status actions">
+      <div class="left-actions">
+        <button id="start-work" type="button" class="secondary-btn" ${isClosed || isResolved ? "disabled" : ""}>Start Work</button>
+        <button id="resolve-case" type="button" class="primary-btn" ${isClosed || isResolved ? "disabled" : ""}>Resolve</button>
+        <button id="agent-reopen-case" type="button" class="secondary-btn ${isResolved ? "" : "hidden"}">Re-open case</button>
+        <label class="inline-select-label">Status
+          <select id="agent-status-select" class="detail-select" ${isClosed ? "disabled" : ""}>
+            ${["New", "In Progress", "Waiting on Customer", "Resolved", "Closed"].map((status) => `<option ${status === c.status ? "selected" : ""}>${status}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <button id="open-reply-modal" type="button" class="primary-btn reply-top-btn" ${isClosed ? "disabled" : ""}>Reply to Customer</button>
+    </div>
+    <div class="detail-grid">
+      <section><h4>Customer</h4><p>${escapeHtml(c.customer_name)}<br>${escapeHtml(c.customer_email)}</p></section>
+      <section><h4>Category</h4><select id="agent-category-select" class="detail-select" ${isClosed ? "disabled" : ""}>${CATEGORIES.map((category) => `<option ${category === c.category ? "selected" : ""}>${category}</option>`).join("")}</select></section>
+      <section><h4>Assigned agent</h4><select id="agent-assignee-select" class="detail-select" ${isClosed ? "disabled" : ""}>${renderAgentOptions(c.assigned_agent_id)}</select><p class="hint">Assignment is only visible to agents.</p></section>
+    </div>
+    <section class="request-message"><h4>Request details</h4><p>${escapeHtml(c.description)}</p></section>
+    <section class="attachments-section"><h4>Initial attachments</h4>${renderAttachmentList(initialAttachments)}</section>
+    <section class="update-panel"><h4>Add internal note</h4><textarea id="agent-internal-note-text" rows="5" placeholder="Internal note only visible to agents..." ${isClosed ? "disabled" : ""}></textarea><button id="add-internal-note" type="button" class="primary-btn" ${isClosed ? "disabled" : ""}>Add Internal Note</button><p class="hint">Customer replies use the Reply to Customer button at the top right.</p></section>
+    <section class="timeline-section"><h4>Activity</h4><div class="timeline">${renderTimeline(selectedAgentMessages, attachmentsByMessage, false)}</div></section>
   `;
+
+  $("start-work")?.addEventListener("click", handleStartWork);
+  $("resolve-case")?.addEventListener("click", () => openResolveModal(c.id));
+  $("agent-reopen-case")?.addEventListener("click", handleAgentReopenCase);
+  $("open-reply-modal")?.addEventListener("click", () => openReplyModal(c));
+  $("agent-status-select")?.addEventListener("change", handleAgentStatusChange);
+  $("agent-category-select")?.addEventListener("change", handleAgentCategoryChange);
+  $("agent-assignee-select")?.addEventListener("change", handleAgentAssigneeChange);
+  $("add-internal-note")?.addEventListener("click", handleAddInternalNote);
+  bindDownloadButtons(requestDetail);
 }
 
-function renderCustomerRequestDetail(requestId) {
-  const request = requests.find((item) => item.id === requestId);
-  if (!request) {
-    renderEmptyCustomerDetail();
-    return;
-  }
-
-  customerRequestDetail.className = "card detail-panel";
-  customerRequestDetail.innerHTML = "";
-  const content = customerDetailTemplate.content.cloneNode(true);
-
-  content.querySelector(".customer-request-number").textContent = request.requestNumber;
-  content.querySelector(".customer-detail-subject").textContent = request.subject;
-  content.querySelector(".customer-request-meta").textContent = getRequestMetaText(request);
-
-  const statusPill = content.querySelector(".customer-status-pill");
-  statusPill.textContent = request.status;
-  statusPill.classList.add(statusClass(request.status));
-
-  content.querySelector(".customer-category-info").textContent = request.category;
-  content.querySelector(".customer-requester-info").textContent = `${request.requesterName} · ${request.requesterEmail}`;
-  content.querySelector(".customer-details-text").textContent = request.details;
-
-  const alertBox = content.querySelector(".customer-case-alert");
-  const replyText = content.querySelector("#customer-reply-text");
-  const replyFiles = content.querySelector("#customer-reply-attachments");
-  const replyFileList = content.querySelector("#customer-reply-file-list");
-  const replyButton = content.querySelector("#customer-add-reply");
-  const reopenButton = content.querySelector("#customer-reopen-case");
-  const replyHint = content.querySelector(".customer-reply-hint");
-
-  replyFiles.addEventListener("change", () => renderFileSelection(replyFiles, replyFileList));
-  setCustomerCaseAlert(request, alertBox);
-  renderTimeline(request.activity, content.querySelector(".customer-timeline"), "customer");
-
-  if (request.status === "Closed") {
-    replyText.disabled = true;
-    replyFiles.disabled = true;
-    replyButton.disabled = true;
-    replyHint.textContent = "This case is closed and cannot be re-opened. Please raise a new support request if you need more help.";
-  } else if (request.status === "Resolved") {
-    replyText.disabled = true;
-    replyFiles.disabled = true;
-    replyButton.disabled = true;
-    reopenButton.classList.remove("hidden");
-    replyHint.textContent = "This case is resolved. You can re-open it within the portal if more work is needed.";
-    reopenButton.addEventListener("click", () => openRequesterReopenModal(request.id));
-  } else {
-    replyHint.textContent = "Your reply and attachments will be visible to agents in the case activity.";
-    replyButton.addEventListener("click", () => addCustomerReply(request.id));
-  }
-
-  customerRequestDetail.appendChild(content);
+function renderAgentOptions(selectedId) {
+  const options = [`<option value="">Unassigned</option>`];
+  options.push(...cachedAgents.map((agent) => `<option value="${escapeHtml(agent.id)}" ${agent.id === selectedId ? "selected" : ""}>${escapeHtml(agent.first_name)} ${escapeHtml(agent.last_name)} · ${escapeHtml(agent.email)}</option>`));
+  return options.join("");
 }
 
-function setCustomerCaseAlert(request, container) {
-  container.className = "customer-case-alert";
-
-  if (request.status === "Closed") {
-    container.classList.add("danger-alert");
-    container.textContent = "This case is closed and cannot be re-opened. Please raise a new support request if further help is needed.";
-    return;
-  }
-
-  if (request.status === "Resolved") {
-    const closesOn = request.resolvedAt ? formatDateTime(addDays(request.resolvedAt, RESOLVED_AUTO_CLOSE_DAYS).toISOString()) : "14 days after resolution";
-    container.classList.add("success-alert");
-    container.textContent = `This case is resolved. It will automatically close after 14 days if it is not re-opened. Auto-close date: ${closesOn}.`;
-    return;
-  }
-
-  container.classList.add("info-alert");
-  container.textContent = "This case is open. Support can send updates here, and you can reply below.";
+async function handleStartWork() {
+  try {
+    await rpc("agent_start_work", { p_token: currentToken, p_case_id: selectedAgentCase.id });
+    await refreshInboxIfLoggedIn();
+    showToast("Case assigned to you and set to In Progress.");
+  } catch (error) { showToast(error.message); }
 }
 
-async function addCustomerReply(requestId) {
-  const textarea = customerRequestDetail.querySelector("#customer-reply-text");
-  const fileInputEl = customerRequestDetail.querySelector("#customer-reply-attachments");
-  const text = textarea.value.trim();
-  const files = [...fileInputEl.files];
+function openResolveModal(caseId) {
+  pendingResolveCaseId = caseId;
+  resolutionNotes.value = "";
+  openModal("resolution-modal");
+}
 
-  if (!text && !files.length) {
-    alert("Please type a reply or attach a file first.");
-    return;
-  }
-
-  if (!validateAttachmentSize(files)) return;
-
-  const request = requests.find((item) => item.id === requestId);
-  if (!request || request.status === "Closed" || request.status === "Resolved") return;
-
-  const now = new Date().toISOString();
-  request.updatedAt = now;
-  request.activity.push({
-    id: createId(),
-    type: "customer-reply",
-    author: request.requesterName,
-    text: text || (files.length ? "Attached file(s)." : ""),
-    createdAt: now,
-    audience: "customer",
-    attachments: await readAttachments(files),
-  });
-
-  if (request.status === "Waiting on Customer") {
-    request.status = "In Progress";
-    request.activity.push({
-      id: createId(),
-      type: "system",
-      author: "System",
-      text: "Status changed to In Progress after customer reply.",
-      createdAt: now,
-      audience: "customer",
-      attachments: [],
+async function handleResolveSubmit(event) {
+  event.preventDefault();
+  if (!pendingResolveCaseId) return;
+  try {
+    await rpc("agent_resolve_case", {
+      p_token: currentToken,
+      p_case_id: pendingResolveCaseId,
+      p_resolution_notes: resolutionNotes.value.trim(),
     });
-  }
-
-  saveAndRender(request.id, true);
+    closeModal("resolution-modal");
+    await refreshInboxIfLoggedIn();
+    showToast("Case resolved with resolution notes.");
+  } catch (error) { showToast(error.message); }
 }
 
-function openRequesterReopenModal(requestId) {
-  const request = requests.find((item) => item.id === requestId);
-  if (!request || request.status !== "Resolved") return;
-  pendingRequesterReopenId = requestId;
-  reopenReason.value = "";
-  reopenModal.classList.remove("hidden");
-  reopenReason.focus();
+async function handleAgentReopenCase() {
+  try {
+    await rpc("agent_reopen_case", { p_token: currentToken, p_case_id: selectedAgentCase.id });
+    await refreshInboxIfLoggedIn();
+    showToast("Case re-opened.");
+  } catch (error) { showToast(error.message); }
 }
 
-function handleRequesterReopenSubmit(event) {
+async function handleAgentStatusChange(event) {
+  try {
+    const status = event.target.value;
+    if (status === "Resolved") {
+      event.target.value = selectedAgentCase.status;
+      openResolveModal(selectedAgentCase.id);
+      return;
+    }
+    await rpc("agent_change_status", { p_token: currentToken, p_case_id: selectedAgentCase.id, p_status: status });
+    await refreshInboxIfLoggedIn();
+  } catch (error) { showToast(error.message); }
+}
+
+async function handleAgentCategoryChange(event) {
+  try {
+    await rpc("agent_change_category", { p_token: currentToken, p_case_id: selectedAgentCase.id, p_category: event.target.value });
+    await refreshInboxIfLoggedIn();
+    showToast("Category updated.");
+  } catch (error) { showToast(error.message); }
+}
+
+async function handleAgentAssigneeChange(event) {
+  try {
+    const agentId = event.target.value;
+    if (!agentId) {
+      showToast("Select an agent to assign the case.");
+      await openAgentCase(selectedAgentCase.id, false);
+      return;
+    }
+    await rpc("agent_assign_case", { p_token: currentToken, p_case_id: selectedAgentCase.id, p_assigned_agent_id: agentId });
+    await refreshInboxIfLoggedIn();
+    showToast("Case assignment updated.");
+  } catch (error) { showToast(error.message); }
+}
+
+async function handleAddInternalNote() {
+  const text = $("agent-internal-note-text").value.trim();
+  if (!text) return showToast("Type an internal note first.");
+  try {
+    await rpc("agent_add_internal_note", { p_token: currentToken, p_case_id: selectedAgentCase.id, p_body: text });
+    await refreshInboxIfLoggedIn();
+    showToast("Internal note added.");
+  } catch (error) { showToast(error.message); }
+}
+
+function openReplyModal(caseData) {
+  pendingReplyCase = caseData;
+  replyToEmails.value = caseData.customer_email;
+  replyCcEmails.value = "";
+  replySubject.value = `${caseData.case_number} - ${caseData.subject}`;
+  const agentName = currentAgent ? `${currentAgent.first_name} ${currentAgent.last_name}` : "Support Agent";
+  replyBody.value = `Hello ${caseData.customer_name},\n\n\n\nKind regards,\n${agentName}`;
+  replyAttachments.value = "";
+  renderFileSelection(replyAttachments, replyFileList);
+  openModal("reply-modal");
+}
+
+async function handleReplySubmit(event) {
   event.preventDefault();
-  const reason = reopenReason.value.trim();
-  if (!reason || !pendingRequesterReopenId) return;
-
-  const request = requests.find((item) => item.id === pendingRequesterReopenId);
-  if (!request || request.status !== "Resolved") return;
-
-  const now = new Date().toISOString();
-  request.status = "In Progress";
-  request.updatedAt = now;
-  request.resolvedAt = null;
-  request.activity.push({
-    id: createId(),
-    type: "reopen",
-    author: request.requesterName,
-    text: `Customer re-opened the case. Reason: ${reason}`,
-    createdAt: now,
-    audience: "customer",
-    attachments: [],
-  });
-
-  closeModal("reopen-modal");
-  saveAndRender(request.id, true);
+  if (!pendingReplyCase) return;
+  const files = Array.from(replyAttachments.files || []);
+  try {
+    const data = await rpc("agent_send_customer_reply", {
+      p_token: currentToken,
+      p_case_id: pendingReplyCase.id,
+      p_to_emails: parseEmailList(replyToEmails.value),
+      p_cc_emails: parseEmailList(replyCcEmails.value),
+      p_email_subject: replySubject.value.trim(),
+      p_body: replyBody.value.trim(),
+    });
+    if (files.length) {
+      await uploadAgentAttachments(files, {
+        caseNumber: pendingReplyCase.case_number,
+        caseId: pendingReplyCase.id,
+        messageId: data.message_id,
+        visibleToCustomer: true,
+      });
+    }
+    closeModal("reply-modal");
+    await refreshInboxIfLoggedIn();
+    showToast("Reply saved to the case. Real email sending is not connected yet.");
+  } catch (error) { showToast(error.message); }
 }
 
-function closeModal(modalId) {
-  const modal = document.getElementById(modalId);
-  if (!modal) return;
-  modal.classList.add("hidden");
-
-  if (modalId === "resolution-modal") {
-    pendingResolveRequestId = null;
-    resolutionNotes.value = "";
-  }
-
-  if (modalId === "reopen-modal") {
-    pendingRequesterReopenId = null;
-    reopenReason.value = "";
-  }
-}
-
-function saveAndRender(requestId, preferCustomer = false) {
-  saveRequests();
-  selectedRequestId = requestId;
-  selectedCustomerRequestId = requestId;
-  renderInbox();
-  renderCustomerPortal(false);
-
-  if (preferCustomer) {
-    renderCustomerRequestDetail(requestId);
-  } else if (getCurrentAgent()) {
-    renderRequestDetail(requestId);
-  }
-}
-
-function handleAddAgent(event) {
+async function handleAddAgent(event) {
   event.preventDefault();
-  const firstName = document.getElementById("agent-first-name").value.trim();
-  const lastName = document.getElementById("agent-last-name").value.trim();
-  const email = document.getElementById("agent-email").value.trim();
-  const password = document.getElementById("agent-password").value;
-
-  if (!firstName || !lastName || !email || !password) return;
-  if (agents.some((agent) => agent.email.toLowerCase() === email.toLowerCase())) {
-    alert("An agent with this email already exists.");
-    return;
-  }
-
-  agents.push({ id: createId(), firstName, lastName, email, password });
-  saveAgents();
-  agentForm.reset();
-  populateAgentLoginSelect();
-  renderSettings();
-  renderInbox();
+  if (!currentToken) return showToast("Log in as an agent before adding agents.");
+  try {
+    await rpc("create_agent", {
+      p_token: currentToken,
+      p_first_name: $("agent-first-name").value,
+      p_last_name: $("agent-last-name").value,
+      p_email: $("agent-email").value,
+      p_password: $("agent-password").value,
+    });
+    agentForm.reset();
+    await loadAgents();
+    renderSettings();
+    if (selectedAgentCase) renderAgentCaseDetail();
+    showToast("Agent saved.");
+  } catch (error) { showToast(error.message); }
 }
 
 function renderSettings() {
   if (!agentList) return;
-  agentList.innerHTML = "";
-  agents.forEach((agent) => {
-    const item = document.createElement("div");
-    item.className = "agent-list-item";
-    item.innerHTML = `
-      <div>
-        <strong>${escapeHtml(fullAgentName(agent))}</strong>
-        <p>${escapeHtml(agent.email)}</p>
-      </div>
-      <span class="agent-badge">${escapeHtml(displayAgentName(agent))}</span>
-    `;
-    agentList.appendChild(item);
+  const loggedInText = currentAgent ? `<div class="agent-session-banner settings-agent-banner"><div><p class="eyebrow">Logged in agent</p><strong>${escapeHtml(currentAgent.first_name)} ${escapeHtml(currentAgent.last_name)} · ${escapeHtml(currentAgent.email)}</strong></div></div>` : `<div class="warning-box">Log in as an agent before adding new agents.</div>`;
+  const agentsHtml = cachedAgents.length ? cachedAgents.map((agent) => `
+    <div class="agent-list-item">
+      <strong>${escapeHtml(agent.first_name)} ${escapeHtml(agent.last_name)}</strong>
+      <span>${escapeHtml(agent.email)}</span>
+      <small>Replies show as ${escapeHtml(agent.first_name)} ${escapeHtml((agent.last_name || "").charAt(0))}</small>
+    </div>
+  `).join("") : `<div class="no-results">No active agents found.</div>`;
+  agentList.innerHTML = `${loggedInText}${agentsHtml}`;
+}
+
+async function uploadCustomerAttachments(files, { caseNumber, customerEmail, messageId, folder }) {
+  for (const file of files) {
+    const filePath = buildFilePath(caseNumber, folder || "customer", file.name);
+    await uploadFile(filePath, file);
+    await rpc("customer_register_attachment", {
+      p_case_number: caseNumber,
+      p_customer_email: customerEmail,
+      p_message_id: messageId,
+      p_file_name: file.name,
+      p_file_path: filePath,
+      p_file_size: file.size,
+      p_mime_type: file.type || "application/octet-stream",
+    });
+  }
+}
+
+async function uploadAgentAttachments(files, { caseNumber, caseId, messageId, visibleToCustomer }) {
+  for (const file of files) {
+    const filePath = buildFilePath(caseNumber, messageId || "agent", file.name);
+    await uploadFile(filePath, file);
+    await rpc("agent_register_attachment", {
+      p_token: currentToken,
+      p_case_id: caseId,
+      p_message_id: messageId,
+      p_file_name: file.name,
+      p_file_path: filePath,
+      p_file_size: file.size,
+      p_mime_type: file.type || "application/octet-stream",
+      p_visible_to_customer: visibleToCustomer,
+    });
+  }
+}
+
+async function uploadFile(filePath, file) {
+  const { error } = await supabaseClient.storage.from(BUCKET).upload(filePath, file, {
+    cacheControl: "3600",
+    upsert: false,
+    contentType: file.type || "application/octet-stream",
+  });
+  if (error) throw new Error(error.message || "Attachment upload failed.");
+}
+
+async function downloadAttachment(filePath, fileName) {
+  try {
+    const { data, error } = await supabaseClient.storage.from(BUCKET).download(filePath);
+    if (error) throw error;
+    const url = URL.createObjectURL(data);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName || "attachment";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) { showToast(error.message || "Could not download attachment."); }
+}
+
+function bindDownloadButtons(container) {
+  container.querySelectorAll("[data-download-path]").forEach((button) => {
+    button.addEventListener("click", () => downloadAttachment(button.dataset.downloadPath, button.dataset.fileName));
   });
 }
 
-function exportRequests() {
-  const payload = {
-    exportedAt: new Date().toISOString(),
-    version: 3,
-    requests,
-    agents,
+function renderTimeline(messages, attachmentsByMessage, customerView) {
+  if (!messages.length) return `<div class="no-results">No activity yet.</div>`;
+  return messages.map((message) => {
+    const attachments = attachmentsByMessage.get(message.id) || [];
+    return `
+      <article class="timeline-item ${message.visible_to_customer === false ? "internal" : ""}">
+        <div class="timeline-topline">
+          <strong>${escapeHtml(message.author_display || "System")}</strong>
+          <span>${escapeHtml(labelForMessage(message))} · ${formatDate(message.created_at)}</span>
+        </div>
+        ${message.email_subject ? `<p class="email-subject"><strong>Subject:</strong> ${escapeHtml(message.email_subject)}</p>` : ""}
+        ${message.to_emails && message.to_emails.length ? `<p class="email-meta"><strong>To:</strong> ${escapeHtml(message.to_emails.join(", "))}</p>` : ""}
+        ${message.cc_emails && message.cc_emails.length ? `<p class="email-meta"><strong>CC:</strong> ${escapeHtml(message.cc_emails.join(", "))}</p>` : ""}
+        <p>${nl2br(escapeHtml(message.body || ""))}</p>
+        ${renderAttachmentList(attachments)}
+        ${!customerView && message.visible_to_customer === false ? `<span class="internal-badge">Internal only</span>` : ""}
+      </article>
+    `;
+  }).join("");
+}
+
+function renderAttachmentList(attachments) {
+  if (!attachments || !attachments.length) return `<div class="no-results small">No attachments.</div>`;
+  return `<ul class="attachment-list">${attachments.map((attachment) => `
+    <li>
+      <span>📎 ${escapeHtml(attachment.file_name)} ${attachment.file_size ? `<small>(${formatBytes(Number(attachment.file_size))})</small>` : ""}</span>
+      <button type="button" class="link-btn" data-download-path="${escapeHtml(attachment.file_path)}" data-file-name="${escapeHtml(attachment.file_name)}">Download</button>
+    </li>
+  `).join("")}</ul>`;
+}
+
+function groupAttachmentsByMessage(attachments) {
+  const map = new Map();
+  (attachments || []).forEach((attachment) => {
+    const key = attachment.message_id || "__initial";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(attachment);
+  });
+  return map;
+}
+
+function parseEmailList(value) {
+  return String(value || "").split(/[;,]/).map((item) => item.trim()).filter(Boolean);
+}
+
+function buildFilePath(caseNumber, folder, filename) {
+  const safeCase = String(caseNumber || "case").replace(/[^a-z0-9_-]/gi, "-");
+  const safeFolder = String(folder || "files").replace(/[^a-z0-9_-]/gi, "-");
+  const safeName = String(filename || "attachment").replace(/[^a-z0-9._-]/gi, "-");
+  const unique = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  return `${safeCase}/${safeFolder}/${unique}-${safeName}`;
+}
+
+function loadSessionAgent() {
+  try {
+    const stored = sessionStorage.getItem(SESSION_AGENT_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+function labelForMessage(message) {
+  const labels = {
+    agent_reply: "Reply to Customer",
+    customer_reply: "Customer reply",
+    internal_note: "Internal note",
+    resolution: "Resolution notes",
+    reopen_request: "Re-open request",
+    system: "System update",
+    message: "Message",
   };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `support-requests-${new Date().toISOString().slice(0, 10)}.json`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-function importRequests(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const parsed = JSON.parse(reader.result);
-      const importedRequests = Array.isArray(parsed) ? parsed : parsed.requests;
-
-      if (!Array.isArray(importedRequests)) {
-        throw new Error("Invalid import format");
-      }
-
-      requests = normaliseRequests(importedRequests);
-      if (Array.isArray(parsed.agents)) {
-        agents = normaliseAgents(parsed.agents);
-        saveAgents();
-      }
-      autoCloseResolvedRequests();
-      selectedRequestId = null;
-      selectedCustomerRequestId = null;
-      saveRequests();
-      updateCounterFromRequests();
-      populateAgentLoginSelect();
-      renderAgentArea();
-      renderInbox();
-      renderCustomerPortal();
-      renderSettings();
-      alert("Requests imported successfully.");
-    } catch (error) {
-      alert("Could not import this file. Please choose a valid support request export.");
-      console.error(error);
-    } finally {
-      importInput.value = "";
-    }
-  };
-  reader.readAsText(file);
-}
-
-function clearRequests() {
-  const confirmed = confirm("Clear all saved requests from this browser? Agent settings will be kept.");
-  if (!confirmed) return;
-
-  requests = [];
-  selectedRequestId = null;
-  selectedCustomerRequestId = null;
-  customerSearchEmail = "";
-  customerEmailSearch.value = "";
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(COUNTER_KEY);
-  LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
-  LEGACY_COUNTER_KEYS.forEach((key) => localStorage.removeItem(key));
-  renderInbox();
-  renderCustomerPortal();
-}
-
-function updateCounterFromRequests() {
-  const highest = requests.reduce((max, request) => {
-    const number = Number(String(request.requestNumber || "").replace(/\D/g, ""));
-    return Number.isFinite(number) ? Math.max(max, number) : max;
-  }, 0);
-  localStorage.setItem(COUNTER_KEY, String(highest));
+  return labels[message.message_type] || "Message";
 }
 
 function statusClass(status) {
-  return `status-${status.toLowerCase().replaceAll(" ", "-")}`;
+  return `status-${String(status || "").toLowerCase().replace(/\s+/g, "-")}`;
+}
+
+function formatDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("en-AU", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / Math.pow(1024, index)).toFixed(index ? 1 : 0)} ${units[index]}`;
 }
 
 function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return String(value ?? "").replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
+}
+
+function nl2br(value) {
+  return String(value).replace(/\n/g, "<br>");
+}
+
+function renderFileSelection(input, list) {
+  if (!list) return;
+  const files = Array.from(input?.files || []);
+  list.innerHTML = files.length ? files.map((file) => `<li>${escapeHtml(file.name)} <span>${formatBytes(file.size)}</span></li>`).join("") : "";
+}
+
+function openModal(id) {
+  $(id)?.classList.remove("hidden");
+}
+
+function closeModal(id) {
+  $(id)?.classList.add("hidden");
+  if (id === "reply-modal") pendingReplyCase = null;
+  if (id === "resolution-modal") pendingResolveCaseId = null;
+  if (id === "reopen-modal") pendingRequesterReopenCase = null;
+}
+
+function showLoginError(message) {
+  if (!agentLoginError) return;
+  agentLoginError.textContent = message;
+  agentLoginError.classList.remove("hidden");
+}
+
+function hideLoginError() {
+  if (!agentLoginError) return;
+  agentLoginError.textContent = "";
+  agentLoginError.classList.add("hidden");
+}
+
+function showToast(message) {
+  let toast = $("app-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "app-toast";
+    toast.className = "app-toast";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add("show");
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => toast.classList.remove("show"), 4200);
+}
+
+function showFatalError(error) {
+  document.body.innerHTML = `<main class="fatal-error card"><h1>Support Portal could not start</h1><p>${escapeHtml(error.message)}</p><p>Check config.js, your Supabase project URL/key, and internet access.</p></main>`;
+}
+
+function setFormBusy(form, busy) {
+  form?.querySelectorAll("button, input, textarea, select").forEach((element) => {
+    element.disabled = busy;
+  });
 }

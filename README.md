@@ -1,99 +1,73 @@
-# Support Request Portal
+# Support Request Portal v4 - Supabase Backend Version
 
-A GitHub Pages-ready support request portal prototype. Users can raise support requests, track their cases in the portal, and agents can manage cases through an inbox-style workspace.
+This version connects the support request portal to your Supabase project instead of storing live case data only in the browser.
+
+## Supabase project used
+
+The included `config.js` contains:
+
+```js
+window.SUPPORT_PORTAL_CONFIG = {
+  SUPABASE_URL: "https://iierbrcpbuiwdgruoday.supabase.co",
+  SUPABASE_PUBLISHABLE_KEY: "sb_publishable_YKdtucfLJ6ifQ6R2dfciuw_BigGSJiA"
+};
+```
+
+Only the publishable key is included. Do not add a service role key to this project or to GitHub.
+
+## Important setup step before using attachments
+
+You already ran the main database setup scripts. Before using this version, run the included SQL file:
+
+```text
+backend-patch-v4.sql
+```
+
+In Supabase:
+
+```text
+SQL Editor > New Query > paste backend-patch-v4.sql > Run
+```
+
+This adds the attachment registration functions used by the website.
 
 ## Files
 
-- `index.html` – page structure and templates
-- `styles.css` – visual styling
-- `app.js` – browser-only app logic
+- `index.html` - website layout
+- `styles.css` - website styling
+- `app.js` - Supabase-connected app logic
+- `config.js` - Supabase URL and publishable key
+- `backend-patch-v4.sql` - extra backend functions for attachment records
 
-## Current version features
+## What works in this version
 
-### Requester / customer side
+- Raise a support request into Supabase
+- Track a request using case number + email address
+- Agent login using Supabase backend function
+- Agent inbox with Open default filter
+- Assigned to Me filter only shows open cases assigned to the logged-in agent
+- Category filter in Agent Inbox
+- Manual category change within a case
+- Agent assignment and Start Work auto-assignment
+- Customer replies through the portal
+- Customer attachments after the case is raised
+- Agent Reply to Customer email-style popup
+- Agent attachments on customer-facing replies
+- Internal notes
+- Resolution notes
+- Customer reopen reason popup
+- Agent reopen without popup
+- Closed cases cannot be reopened
+- Attachments upload to Supabase Storage and attachment records are saved in the database
 
-- Raise a Support Request form
-- Categories:
-  - ICT
-  - Finance Service
-  - Human Resources
-- Optional attachments
-- Track My Requests area
-- Search requests by requester email address
-- Default requester view is `Open`
-- Requesters can see:
-  - request status
-  - messages sent to them by agents
-  - resolution notes
-  - their own replies
-  - customer-facing system updates
-- Requesters can reply to open cases
-- Requesters can re-open resolved cases from the portal after entering a reason
-- Closed cases cannot be re-opened and require a new support request
+## Still not included yet
 
-### Agent side
+Real outgoing email is not connected yet. The Reply to Customer popup saves the message and attachments to the case. To actually send emails and allow customers to reply by email, the project still needs an email provider and server-side function, such as a Supabase Edge Function.
 
-- Agent inbox
-- Default agent status filter is `Open`
-- `Open` shows cases with these statuses:
-  - New
-  - In Progress
-  - Waiting on Customer
-- Search by request number, name, email, category, subject, details, or status
-- Agents can add:
-  - replies to requester
-  - internal notes
-- In the request detail view, Add Update appears before Activity
-- Agents can resolve cases using a resolution notes popup
-- Resolution notes are shown to the requester in the portal
-- Agents can re-open resolved cases without a popup
-- Agents can manually close resolved cases
-- Closed cases cannot be re-opened
+## GitHub Pages note
 
-### Case lifecycle
+This version can still be hosted on GitHub Pages because it is a static frontend. The database, login functions, and file storage live in Supabase.
 
-- New requests start as `New`
-- `Open` is a filter/view, not a saved case status
-- Open includes:
-  - New
-  - In Progress
-  - Waiting on Customer
-- Resolved cases have a `Re-open case` option
-- Resolved cases automatically change to `Closed` after 14 days
-- Once a case is `Closed`, it cannot be re-opened
+## Security note
 
-### Data tools
-
-- Export saved request data to JSON
-- Import saved request data from JSON
-- Clear all browser-saved data
-
-## v3.1 fix
-
-This build includes a bug fix for the Agent Inbox login dropdown. The default Luke McGuiness demo agent is now seeded more defensively and also appears as a fallback option in the HTML before JavaScript loads.
-
-Demo login:
-
-- Agent: Luke McGuiness · Luke2003@outlook.com.au
-- Password: 1234
-
-## Important limitation
-
-This is a static GitHub Pages prototype. It stores requests, attachments, replies, and notes in the browser using `localStorage`.
-
-That means:
-
-- requests are not shared across different computers/browsers
-- resolution notifications are simulated inside the portal rather than sent as real emails
-- attachments are browser-stored demo attachments, so smaller files are best
-
-To make this a real multi-agent helpdesk later, the next step would be adding a backend/database and real email notifications.
-
-## How to use on GitHub Pages
-
-1. Create a new GitHub repository.
-2. Upload `index.html`, `styles.css`, `app.js`, and `README.md`.
-3. Go to the repository settings.
-4. Open **Pages**.
-5. Publish from the main branch/root folder.
-6. Open the GitHub Pages URL.
+The current customer lookup is the simpler middle option: case number + matching email address. This is better than showing all cases by email alone, but it is not the same as full customer account login. For a production-grade portal, use Supabase Auth, private storage policies, and stricter Row Level Security policies.

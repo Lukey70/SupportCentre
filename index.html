@@ -27,7 +27,7 @@
           <div class="section-heading">
             <p class="eyebrow">Customer form</p>
             <h2 id="raise-heading">Raise a Support Request</h2>
-            <p>Complete the form below and your request will appear in the agent inbox.</p>
+            <p>Complete the form below and your request will be saved to the Supabase backend.</p>
           </div>
 
           <form id="support-form" autocomplete="on">
@@ -64,7 +64,7 @@
             <div class="form-row">
               <label for="request-attachments">Attachments</label>
               <input id="request-attachments" name="attachments" type="file" multiple />
-              <p class="hint">Optional. For this GitHub Pages version, attachments are saved in your browser, so smaller files are best.</p>
+              <p class="hint">Optional. Attachments are uploaded to the case-attachments Supabase Storage bucket.</p>
               <ul id="selected-files" class="file-list" aria-live="polite"></ul>
             </div>
 
@@ -90,40 +90,32 @@
       <div class="section-heading full-width-heading">
         <p class="eyebrow">Requester portal</p>
         <h2 id="track-heading">Track My Requests</h2>
-        <p>Enter your email address to view your cases, read messages sent to you, and reply.</p>
+        <p>Enter your case number and email address to view your case, read messages sent to you, and reply.</p>
       </div>
 
       <div class="customer-layout">
         <aside class="card inbox-panel">
           <form id="customer-search-form" class="customer-search-form" autocomplete="on">
             <div class="form-row compact">
+              <label for="customer-case-number-search">Case number</label>
+              <input id="customer-case-number-search" type="text" placeholder="e.g. REQ-000001" required />
+            </div>
+            <div class="form-row compact">
               <label for="customer-email-search">Email address</label>
               <input id="customer-email-search" type="email" placeholder="e.g. alex@example.com" required />
             </div>
-            <div class="form-row compact">
-              <label for="customer-status-filter">Status</label>
-              <select id="customer-status-filter">
-                <option value="All" selected>All statuses</option>
-                <option value="Open">Open</option>
-                <option>New</option>
-                <option>In Progress</option>
-                <option>Waiting on Customer</option>
-                <option>Resolved</option>
-                <option>Closed</option>
-              </select>
-            </div>
-            <button type="submit" class="primary-btn full-width-btn">Find My Requests</button>
+            <button type="submit" class="primary-btn full-width-btn">View Request</button>
           </form>
 
           <div id="customer-request-list" class="request-list" role="list" aria-live="polite">
-            <div class="no-results">Enter your email address to find your requests.</div>
+            <div class="no-results">Enter your case number and email address to view your request.</div>
           </div>
         </aside>
 
         <article id="customer-request-detail" class="card detail-panel empty-state">
           <div class="empty-illustration">🔎</div>
           <h3>Track a request</h3>
-          <p>Search using the email address used when the request was raised.</p>
+          <p>Search using your case number and the email address used when the request was raised.</p>
         </article>
       </div>
     </section>
@@ -139,14 +131,12 @@
         <div class="section-heading">
           <p class="eyebrow">Agent login</p>
           <h3>Log in as an agent</h3>
-          <p>Select your agent profile and enter your demo password to open the Agent Inbox.</p>
+          <p>Select your agent profile and enter your password to open the Agent Inbox.</p>
         </div>
         <form id="agent-login-form" autocomplete="off">
           <div class="form-row">
             <label for="agent-login-select">Agent</label>
-            <select id="agent-login-select" required>
-              <option value="agent-luke-mcguiness">Luke McGuiness · Luke2003@outlook.com.au</option>
-            </select>
+            <select id="agent-login-select" required></select>
           </div>
           <div class="form-row">
             <label for="agent-login-password">Password</label>
@@ -155,7 +145,7 @@
           <button type="submit" class="primary-btn">Log in</button>
           <p id="agent-login-error" class="form-error hidden" role="alert"></p>
         </form>
-        <p class="hint">Demo only: GitHub Pages cannot protect passwords like a real backend login system.</p>
+        <p class="hint">Agent login is checked by your Supabase backend.</p>
       </article>
 
       <div id="agent-workspace" class="hidden">
@@ -178,8 +168,8 @@
                 <label for="status-filter">Status</label>
                 <select id="status-filter">
                   <option value="Open" selected>Open</option>
-                  <option value="AssignedToMe">Assigned to Me</option>
-                  <option value="All">All statuses</option>
+                  <option value="Assigned to Me">Assigned to Me</option>
+                  <option value="All Statuses">All statuses</option>
                   <option>New</option>
                   <option>In Progress</option>
                   <option>Waiting on Customer</option>
@@ -190,7 +180,7 @@
               <div class="form-row compact">
                 <label for="category-filter">Category</label>
                 <select id="category-filter">
-                  <option value="All" selected>All categories</option>
+                  <option value="All Categories" selected>All categories</option>
                   <option>ICT</option>
                   <option>Finance Service</option>
                   <option>Human Resources</option>
@@ -228,7 +218,7 @@
       <div class="section-heading full-width-heading">
         <p class="eyebrow">Admin settings</p>
         <h2 id="settings-heading">Settings</h2>
-        <p>Manage demo portal settings. Agent passwords are for prototype use only.</p>
+        <p>Manage portal settings stored in Supabase. Agent passwords are checked by backend functions.</p>
       </div>
 
       <div class="settings-layout">
@@ -424,6 +414,46 @@
     </form>
   </div>
 
+  <div id="reply-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="reply-modal-title">
+    <form id="reply-form" class="modal-card email-modal-card">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Reply to Customer</p>
+          <h3 id="reply-modal-title">Send customer reply</h3>
+        </div>
+        <button type="button" class="icon-btn" data-close-modal="reply-modal" aria-label="Close reply popup">×</button>
+      </div>
+      <p class="modal-copy">This saves the reply to the case. Real outgoing email sending can be connected later with an email provider/Edge Function.</p>
+      <div class="form-row">
+        <label for="reply-to-emails">To</label>
+        <input id="reply-to-emails" type="text" placeholder="customer@example.com, other@example.com" required />
+      </div>
+      <div class="form-row">
+        <label for="reply-cc-emails">CC</label>
+        <input id="reply-cc-emails" type="text" placeholder="optional@example.com" />
+      </div>
+      <div class="form-row">
+        <label for="reply-subject">Subject</label>
+        <input id="reply-subject" type="text" required />
+      </div>
+      <div class="form-row">
+        <label for="reply-body">Body</label>
+        <textarea id="reply-body" rows="10" required></textarea>
+      </div>
+      <div class="form-row compact attachment-input-row">
+        <label for="reply-attachments">Attachments</label>
+        <input id="reply-attachments" type="file" multiple />
+        <ul id="reply-file-list" class="file-list" aria-live="polite"></ul>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="secondary-btn" data-close-modal="reply-modal">Cancel</button>
+        <button type="submit" class="primary-btn">Send</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
