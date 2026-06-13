@@ -1,41 +1,59 @@
-# Support Request Portal v4.5 Supabase
+# Support Request Portal v4.6 Supabase
 
-This is the Supabase-connected support request portal.
+This version is based on v4.5 and adds separate customer first name / last name capture.
+
+## What changed in v4.6
+
+- The **Raise a Support Request** form now asks for:
+  - First name
+  - Last name
+  - Email address
+- The case still displays the customer's full name where appropriate.
+- The **Reply to Customer** email popup now auto-populates the greeting using only the customer's first name:
+
+```text
+Hello Alex,
+
+
+Kind regards,
+Luke M
+```
+
+- A new backend patch adds `customer_first_name` and `customer_last_name` columns to `support_requests`.
+- Existing cases are backfilled using the existing `customer_name` value.
+- The website calls a new Supabase function: `create_support_request_v2`.
 
 ## Files to upload to GitHub
 
-Upload/replace these files in the root of your GitHub Pages repository:
+Upload/replace all files from this folder:
 
 - `index.html`
 - `config.js`
-- `app-v4-5.js`
-- `styles-v4-5.css`
-- `backend-patch-v4-5.sql`
+- `app-v4-6.js`
+- `styles-v4-6.css`
+- `backend-patch-v4-6.sql`
 - `README.md`
 
-## Version marker
+## Supabase step
 
-After uploading, open the live site and confirm the header says:
+Before testing the website, run this file in Supabase SQL Editor:
 
-`v4.5 Supabase`
+```text
+backend-patch-v4-6.sql
+```
 
-Then hard refresh with `Ctrl + F5`.
+You should see **Success. No rows returned**.
 
-## Database
+## After uploading
 
-No new database schema changes are required for v4.5. If you want to run the included SQL file, `backend-patch-v4-5.sql` is a no-op confirmation patch only.
+Open your GitHub Pages site, confirm the header says:
 
-## v4.5 changes
+```text
+v4.6 Supabase
+```
 
-- The Reply to Customer email popup is now scrollable, including on smaller screens.
-- The left case list now shows the current status badge next to the case number.
-- The left case list now shows the case category.
-- The open case status badge in the top-right is now the manual status dropdown/control.
-- The separate status dropdown from the action row has been removed.
-- Existing v4.4 fixes remain included:
-  - Reply to Customer popup opens correctly.
-  - Activity is newest first.
-  - Activity does not show “No attachments” on messages with no files.
-  - Awaiting Info button maps to backend status `Waiting on Customer`.
-  - Start Work is disabled after a case is already started/assigned.
-  - Agent display names use first name + last initial, for example `Luke M`.
+Then press **Ctrl + F5** to hard refresh.
+
+## Notes
+
+This version still saves the email-style reply to the case in Supabase. Real outgoing email sending still requires a later Supabase Edge Function/email provider setup.
