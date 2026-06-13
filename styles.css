@@ -839,3 +839,150 @@ textarea:disabled {
     padding: 18px;
   }
 }
+
+/* Version 3 additions */
+.login-card {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.form-error {
+  margin: 12px 0 0;
+  color: var(--danger);
+  font-weight: 800;
+}
+
+.agent-session-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 22px;
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+
+.agent-session-banner strong {
+  display: block;
+  margin-top: 2px;
+}
+
+.inbox-toolbar {
+  display: grid;
+  gap: 12px;
+}
+
+.detail-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.detail-select {
+  margin-top: 6px;
+}
+
+.attachment-input-row {
+  margin: 12px 0;
+}
+
+.timeline-attachments {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.timeline-attachments > strong {
+  margin-bottom: 0;
+}
+
+.timeline-attachment {
+  background: var(--card-soft);
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.25fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.settings-sidebar {
+  display: grid;
+  gap: 12px;
+  position: sticky;
+  top: 18px;
+}
+
+.settings-tab {
+  width: 100%;
+  border: 0;
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: #edf2ff;
+  color: var(--brand-dark);
+  font-weight: 900;
+  text-align: left;
+}
+
+.settings-tab.active {
+  background: var(--brand);
+  color: #fff;
+}
+
+.small-gap {
+  gap: 14px;
+}
+
+.agent-list-wrap {
+  margin-top: 24px;
+}
+
+.agent-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.agent-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card-soft);
+}
+
+.agent-list-item p {
+  margin: 3px 0 0;
+  color: var(--muted);
+}
+
+.agent-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: #fff;
+  color: var(--brand-dark);
+  font-weight: 900;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .settings-layout,
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-sidebar {
+    position: static;
+  }
+
+  .agent-session-banner {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

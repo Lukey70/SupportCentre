@@ -1,18 +1,30 @@
-const STORAGE_KEY = "supportRequestPortal.requests.v2";
-const LEGACY_STORAGE_KEYS = ["supportRequestPortal.requests.v1"];
-const COUNTER_KEY = "supportRequestPortal.counter.v2";
-const LEGACY_COUNTER_KEYS = ["supportRequestPortal.counter.v1"];
+const STORAGE_KEY = "supportRequestPortal.requests.v3";
+const LEGACY_STORAGE_KEYS = ["supportRequestPortal.requests.v2", "supportRequestPortal.requests.v1"];
+const COUNTER_KEY = "supportRequestPortal.counter.v3";
+const LEGACY_COUNTER_KEYS = ["supportRequestPortal.counter.v2", "supportRequestPortal.counter.v1"];
+const AGENTS_KEY = "supportRequestPortal.agents.v3";
+const CURRENT_AGENT_KEY = "supportRequestPortal.currentAgentId.v3";
 const MAX_ATTACHMENT_BYTES = 2.5 * 1024 * 1024;
 const RESOLVED_AUTO_CLOSE_DAYS = 14;
 const OPEN_STATUSES = ["New", "In Progress", "Waiting on Customer"];
+const CATEGORIES = ["ICT", "Finance Service", "Human Resources"];
+const DEFAULT_AGENT = {
+  id: "agent-luke-mcguiness",
+  firstName: "Luke",
+  lastName: "McGuiness",
+  email: "Luke2003@outlook.com.au",
+  password: "1234",
+};
 
 let requests = normaliseRequests(loadRequests());
+let agents = normaliseAgents(loadAgents());
 let selectedRequestId = null;
 let selectedCustomerRequestId = null;
 let customerSearchEmail = "";
 let updateType = "reply";
 let pendingResolveRequestId = null;
 let pendingRequesterReopenId = null;
+let currentAgentId = sessionStorage.getItem(CURRENT_AGENT_KEY) || "";
 
 const navButtons = document.querySelectorAll(".nav-btn");
 const pageSections = document.querySelectorAll(".page-section");
@@ -22,15 +34,29 @@ const selectedFiles = document.getElementById("selected-files");
 const successBox = document.getElementById("submission-success");
 const searchInput = document.getElementById("search-requests");
 const statusFilter = document.getElementById("status-filter");
+const categoryFilter = document.getElementById("category-filter");
 const requestList = document.getElementById("request-list");
 const requestDetail = document.getElementById("request-detail");
 const detailTemplate = document.getElementById("request-detail-template");
 const exportButton = document.getElementById("export-data");
 const importInput = document.getElementById("import-data");
 const clearButton = document.getElementById("clear-data");
+const settingsButton = document.getElementById("settings-button");
 const statTotal = document.getElementById("stat-total");
 const statOpen = document.getElementById("stat-open");
 const statResolved = document.getElementById("stat-resolved");
+
+const agentLoginCard = document.getElementById("agent-login-card");
+const agentWorkspace = document.getElementById("agent-workspace");
+const agentLoginForm = document.getElementById("agent-login-form");
+const agentLoginSelect = document.getElementById("agent-login-select");
+const agentLoginPassword = document.getElementById("agent-login-password");
+const agentLoginError = document.getElementById("agent-login-error");
+const currentAgentName = document.getElementById("current-agent-name");
+const agentLogoutButton = document.getElementById("agent-logout");
+const agentForm = document.getElementById("agent-form");
+const agentList = document.getElementById("agent-list");
+const backToAgentInbox = document.getElementById("back-to-agent-inbox");
 
 const customerSearchForm = document.getElementById("customer-search-form");
 const customerEmailSearch = document.getElementById("customer-email-search");
@@ -50,13 +76,23 @@ navButtons.forEach((button) => {
   button.addEventListener("click", () => switchSection(button.dataset.target));
 });
 
-fileInput.addEventListener("change", renderSelectedFiles);
+fileInput.addEventListener("change", () => renderFileSelection(fileInput, selectedFiles));
 supportForm.addEventListener("submit", handleSupportSubmit);
 searchInput.addEventListener("input", renderInbox);
 statusFilter.addEventListener("change", renderInbox);
+categoryFilter.addEventListener("change", renderInbox);
 exportButton.addEventListener("click", exportRequests);
 importInput.addEventListener("change", importRequests);
 clearButton.addEventListener("click", clearRequests);
+settingsButton.addEventListener("click", () => {
+  switchSection("settings-section");
+  renderSettings();
+});
+backToAgentInbox.addEventListener("click", () => switchSection("agent-section"));
+
+agentLoginForm.addEventListener("submit", handleAgentLogin);
+agentLogoutButton.addEventListener("click", handleAgentLogout);
+agentForm.addEventListener("submit", handleAddAgent);
 customerSearchForm.addEventListener("submit", handleCustomerSearch);
 customerStatusFilter.addEventListener("change", renderCustomerPortal);
 resolutionForm.addEventListener("submit", handleResolveSubmit);
@@ -75,12 +111,17 @@ document.querySelectorAll("[data-close-modal]").forEach((button) => {
 const initialAutoClosedCount = autoCloseResolvedRequests();
 if (initialAutoClosedCount > 0) saveRequests();
 else saveRequests();
+saveAgents();
+renderAgentArea();
 renderInbox();
 renderCustomerPortal();
+renderSettings();
 
 function switchSection(targetId) {
   navButtons.forEach((button) => button.classList.toggle("active", button.dataset.target === targetId));
   pageSections.forEach((section) => section.classList.toggle("active", section.id === targetId));
+  if (targetId === "agent-section") renderAgentArea();
+  if (targetId === "settings-section") renderSettings();
 }
 
 function loadRequests() {
@@ -98,11 +139,42 @@ function saveRequests() {
   LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
 }
 
+function loadAgents() {
+  try {
+    const stored = localStorage.getItem(AGENTS_KEY);
+    return stored ? JSON.parse(stored) : [DEFAULT_AGENT];
+  } catch (error) {
+    console.error("Could not load agents", error);
+    return [DEFAULT_AGENT];
+  }
+}
+
+function saveAgents() {
+  localStorage.setItem(AGENTS_KEY, JSON.stringify(agents));
+}
+
 function createId() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
     return window.crypto.randomUUID();
   }
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normaliseAgents(items) {
+  const source = Array.isArray(items) ? items : [];
+  const cleaned = source
+    .filter((agent) => agent && agent.firstName && agent.lastName && agent.email)
+    .map((agent) => ({
+      id: agent.id || createId(),
+      firstName: String(agent.firstName).trim(),
+      lastName: String(agent.lastName).trim(),
+      email: String(agent.email).trim(),
+      password: String(agent.password ?? ""),
+    }));
+
+  const hasDefaultAgent = cleaned.some((agent) => agent.email.toLowerCase() === DEFAULT_AGENT.email.toLowerCase());
+  if (!hasDefaultAgent) cleaned.unshift({ ...DEFAULT_AGENT });
+  return cleaned;
 }
 
 function normaliseRequests(items) {
@@ -117,6 +189,7 @@ function normaliseRequests(items) {
       text: entry.text || "",
       createdAt: entry.createdAt || createdAt,
       audience: entry.audience || inferAudience(entry.type),
+      attachments: Array.isArray(entry.attachments) ? entry.attachments : [],
     })) : [];
 
     if (!activity.length) {
@@ -127,6 +200,7 @@ function normaliseRequests(items) {
         text: "Request created.",
         createdAt,
         audience: "customer",
+        attachments: [],
       });
     }
 
@@ -140,17 +214,18 @@ function normaliseRequests(items) {
       closedAt: request.closedAt || null,
       requesterName: request.requesterName || "Unknown requester",
       requesterEmail: request.requesterEmail || "",
-      category: request.category || "ICT",
+      category: CATEGORIES.includes(request.category) ? request.category : "ICT",
       subject: request.subject || "Untitled request",
       details: request.details || "",
       attachments: Array.isArray(request.attachments) ? request.attachments : [],
+      assignedAgentId: request.assignedAgentId || null,
       activity,
     };
   });
 }
 
 function inferAudience(type) {
-  if (type === "note") return "internal";
+  if (type === "note" || type === "assignment") return "internal";
   if (["reply", "resolution", "customer-reply", "reopen"].includes(type)) return "customer";
   return "customer";
 }
@@ -186,6 +261,25 @@ function isOpenStatus(status) {
   return OPEN_STATUSES.includes(status);
 }
 
+function getCurrentAgent() {
+  return agents.find((agent) => agent.id === currentAgentId) || null;
+}
+
+function getAgentById(agentId) {
+  return agents.find((agent) => agent.id === agentId) || null;
+}
+
+function displayAgentName(agent) {
+  if (!agent) return "Agent";
+  const initial = agent.lastName ? `${agent.lastName.trim().charAt(0).toUpperCase()}` : "";
+  return initial ? `${agent.firstName} ${initial}` : agent.firstName;
+}
+
+function fullAgentName(agent) {
+  if (!agent) return "Unassigned";
+  return `${agent.firstName} ${agent.lastName}`.trim();
+}
+
 function autoCloseResolvedRequests() {
   const now = new Date();
   let closedCount = 0;
@@ -206,6 +300,7 @@ function autoCloseResolvedRequests() {
       text: "Case automatically closed after being resolved for 14 days. This closed case cannot be re-opened; please raise a new support request if further help is needed.",
       createdAt: nowIso,
       audience: "customer",
+      attachments: [],
     });
     closedCount += 1;
   });
@@ -213,17 +308,24 @@ function autoCloseResolvedRequests() {
   return closedCount;
 }
 
-function renderSelectedFiles() {
-  selectedFiles.innerHTML = "";
-  const files = [...fileInput.files];
-
+function renderFileSelection(input, list) {
+  list.innerHTML = "";
+  const files = [...input.files];
   if (!files.length) return;
-
   files.forEach((file) => {
     const item = document.createElement("li");
     item.innerHTML = `<span>${escapeHtml(file.name)}</span><span>${formatFileSize(file.size)}</span>`;
-    selectedFiles.appendChild(item);
+    list.appendChild(item);
   });
+}
+
+function validateAttachmentSize(files) {
+  const totalAttachmentSize = files.reduce((total, file) => total + file.size, 0);
+  if (totalAttachmentSize > MAX_ATTACHMENT_BYTES) {
+    alert(`Attachments are too large for this browser-only demo. Please keep the total under ${formatFileSize(MAX_ATTACHMENT_BYTES)}.`);
+    return false;
+  }
+  return true;
 }
 
 async function handleSupportSubmit(event) {
@@ -231,12 +333,7 @@ async function handleSupportSubmit(event) {
 
   const formData = new FormData(supportForm);
   const files = [...fileInput.files];
-  const totalAttachmentSize = files.reduce((total, file) => total + file.size, 0);
-
-  if (totalAttachmentSize > MAX_ATTACHMENT_BYTES) {
-    alert(`Attachments are too large for this browser-only demo. Please keep the total under ${formatFileSize(MAX_ATTACHMENT_BYTES)}.`);
-    return;
-  }
+  if (!validateAttachmentSize(files)) return;
 
   const now = new Date().toISOString();
   const newRequest = {
@@ -253,6 +350,7 @@ async function handleSupportSubmit(event) {
     subject: String(formData.get("subject")).trim(),
     details: String(formData.get("details")).trim(),
     attachments: await readAttachments(files),
+    assignedAgentId: null,
     activity: [
       {
         id: createId(),
@@ -261,6 +359,7 @@ async function handleSupportSubmit(event) {
         text: "Request created.",
         createdAt: now,
         audience: "customer",
+        attachments: [],
       },
     ],
   };
@@ -299,9 +398,63 @@ function readAttachments(files) {
   })));
 }
 
+function renderAgentArea() {
+  const agent = getCurrentAgent();
+  populateAgentLoginSelect();
+
+  if (!agent) {
+    agentLoginCard.classList.remove("hidden");
+    agentWorkspace.classList.add("hidden");
+    return;
+  }
+
+  agentLoginCard.classList.add("hidden");
+  agentWorkspace.classList.remove("hidden");
+  currentAgentName.textContent = `${fullAgentName(agent)} (${agent.email})`;
+  renderInbox();
+}
+
+function populateAgentLoginSelect() {
+  const currentValue = agentLoginSelect.value;
+  agentLoginSelect.innerHTML = agents.map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(fullAgentName(agent))} · ${escapeHtml(agent.email)}</option>`).join("");
+  if (agents.some((agent) => agent.id === currentValue)) agentLoginSelect.value = currentValue;
+}
+
+function handleAgentLogin(event) {
+  event.preventDefault();
+  const agent = getAgentById(agentLoginSelect.value);
+  const password = agentLoginPassword.value;
+
+  if (!agent || agent.password !== password) {
+    agentLoginError.textContent = "The selected agent or password is incorrect.";
+    agentLoginError.classList.remove("hidden");
+    return;
+  }
+
+  currentAgentId = agent.id;
+  sessionStorage.setItem(CURRENT_AGENT_KEY, currentAgentId);
+  agentLoginPassword.value = "";
+  agentLoginError.classList.add("hidden");
+  renderAgentArea();
+}
+
+function handleAgentLogout() {
+  currentAgentId = "";
+  sessionStorage.removeItem(CURRENT_AGENT_KEY);
+  selectedRequestId = null;
+  renderAgentArea();
+  renderEmptyDetail();
+}
+
 function renderInbox() {
   const closedCount = autoCloseResolvedRequests();
   if (closedCount > 0) saveRequests();
+
+  if (!getCurrentAgent()) {
+    requestList.innerHTML = "";
+    renderCustomerPortal(false);
+    return;
+  }
 
   const filtered = getFilteredRequests();
   requestList.innerHTML = "";
@@ -336,9 +489,18 @@ function renderInbox() {
 function getFilteredRequests() {
   const term = searchInput.value.trim().toLowerCase();
   const selectedStatus = statusFilter.value;
+  const selectedCategory = categoryFilter.value;
+  const agent = getCurrentAgent();
 
   return requests.filter((request) => {
-    const statusMatches = selectedStatus === "All" || (selectedStatus === "Open" ? isOpenStatus(request.status) : request.status === selectedStatus);
+    let statusMatches = false;
+    if (selectedStatus === "All") statusMatches = true;
+    else if (selectedStatus === "Open") statusMatches = isOpenStatus(request.status);
+    else if (selectedStatus === "AssignedToMe") statusMatches = Boolean(agent && request.assignedAgentId === agent.id);
+    else statusMatches = request.status === selectedStatus;
+
+    const categoryMatches = selectedCategory === "All" || request.category === selectedCategory;
+    const assignedAgent = getAgentById(request.assignedAgentId);
     const searchable = [
       request.requestNumber,
       request.requesterName,
@@ -347,8 +509,9 @@ function getFilteredRequests() {
       request.subject,
       request.details,
       request.status,
+      assignedAgent ? fullAgentName(assignedAgent) : "Unassigned",
     ].join(" ").toLowerCase();
-    return statusMatches && searchable.includes(term);
+    return statusMatches && categoryMatches && searchable.includes(term);
   });
 }
 
@@ -358,6 +521,8 @@ function createRequestCard(request, mode) {
   const activeId = mode === "customer" ? selectedCustomerRequestId : selectedRequestId;
   button.className = `request-card ${request.id === activeId ? "active" : ""}`;
   button.setAttribute("role", "listitem");
+  const assignedAgent = getAgentById(request.assignedAgentId);
+  const agentLine = mode === "agent" ? `<p>Assigned: ${escapeHtml(assignedAgent ? displayAgentName(assignedAgent) : "Unassigned")}</p>` : "";
   button.innerHTML = `
     <div class="request-card-top">
       <span class="request-id">${escapeHtml(request.requestNumber)}</span>
@@ -365,6 +530,7 @@ function createRequestCard(request, mode) {
     </div>
     <h3>${escapeHtml(request.subject)}</h3>
     <p>${escapeHtml(mode === "customer" ? request.category : `${request.requesterName} · ${request.category}`)}</p>
+    ${agentLine}
     <p>Updated ${formatDateTime(request.updatedAt)}</p>
   `;
   button.addEventListener("click", () => {
@@ -391,7 +557,8 @@ function renderEmptyDetail() {
 
 function renderRequestDetail(requestId) {
   const request = requests.find((item) => item.id === requestId);
-  if (!request) {
+  const agent = getCurrentAgent();
+  if (!request || !agent) {
     renderEmptyDetail();
     return;
   }
@@ -409,11 +576,18 @@ function renderRequestDetail(requestId) {
   statusPill.classList.add(statusClass(request.status));
 
   content.querySelector(".requester-info").innerHTML = `${escapeHtml(request.requesterName)}<br><a href="mailto:${encodeURIComponent(request.requesterEmail)}">${escapeHtml(request.requesterEmail)}</a>`;
-  content.querySelector(".category-info").textContent = request.category;
   content.querySelector(".details-text").textContent = request.details;
 
+  const categorySelect = content.querySelector("#agent-category-select");
+  categorySelect.innerHTML = CATEGORIES.map((category) => `<option${category === request.category ? " selected" : ""}>${escapeHtml(category)}</option>`).join("");
+  categorySelect.addEventListener("change", () => changeRequestCategory(request.id, categorySelect.value));
+
+  const assigneeSelect = content.querySelector("#agent-assignee-select");
+  populateAssigneeSelect(assigneeSelect, request.assignedAgentId);
+  assigneeSelect.addEventListener("change", () => assignRequest(request.id, assigneeSelect.value || null, false));
+
   const attachmentsList = content.querySelector(".attachments-list");
-  renderAttachments(request.attachments, attachmentsList);
+  renderAttachments(request.attachments, attachmentsList, "No attachments were included with this request.");
 
   const statusActions = content.querySelector(".status-actions");
   renderAgentStatusActions(request, statusActions);
@@ -423,7 +597,11 @@ function renderRequestDetail(requestId) {
 
   const addUpdateButton = content.querySelector("#add-update");
   const updateText = content.querySelector("#agent-update-text");
+  const updateFiles = content.querySelector("#agent-update-attachments");
+  const updateFileList = content.querySelector("#agent-update-file-list");
   const updatePanel = content.querySelector(".update-panel");
+
+  updateFiles.addEventListener("change", () => renderFileSelection(updateFiles, updateFileList));
 
   content.querySelectorAll("[data-update-type]").forEach((button) => {
     button.classList.toggle("active", button.dataset.updateType === updateType);
@@ -435,13 +613,20 @@ function renderRequestDetail(requestId) {
 
   if (request.status === "Closed") {
     updateText.disabled = true;
+    updateFiles.disabled = true;
     addUpdateButton.disabled = true;
-    updatePanel.querySelector(".hint").textContent = "This case is closed and cannot be re-opened. Ask the requester to raise a new support request if more help is needed.";
+    categorySelect.disabled = true;
+    assigneeSelect.disabled = true;
+    updatePanel.querySelector(".hint").textContent = "This case is closed and cannot be re-opened. Ask the customer to raise a new support request if more help is needed.";
   } else {
     addUpdateButton.addEventListener("click", () => addAgentUpdate(request.id));
   }
 
   requestDetail.appendChild(content);
+}
+
+function populateAssigneeSelect(select, selectedAgentId) {
+  select.innerHTML = `<option value="">Unassigned</option>` + agents.map((agent) => `<option value="${escapeHtml(agent.id)}"${agent.id === selectedAgentId ? " selected" : ""}>${escapeHtml(fullAgentName(agent))}</option>`).join("");
 }
 
 function getRequestMetaText(request) {
@@ -466,11 +651,11 @@ function renderAgentStatusActions(request, container) {
     return;
   }
 
-  const startButton = makeActionButton("Start Work", "secondary-btn", () => updateRequestStatus(request.id, "In Progress"));
+  const startButton = makeActionButton("Start Work", "secondary-btn", () => updateRequestStatus(request.id, "In Progress", { assignToCurrent: true }));
   const waitingButton = makeActionButton("Waiting on Customer", "secondary-btn", () => updateRequestStatus(request.id, "Waiting on Customer"));
   const resolveButton = makeActionButton("Resolve", "primary-btn", () => openResolveModal(request.id));
 
-  startButton.disabled = request.status === "In Progress";
+  startButton.disabled = request.status === "In Progress" && request.assignedAgentId === currentAgentId;
   waitingButton.disabled = request.status === "Waiting on Customer";
   container.append(startButton, waitingButton, resolveButton);
 }
@@ -484,11 +669,11 @@ function makeActionButton(label, className, onClick) {
   return button;
 }
 
-function renderAttachments(attachments, container) {
+function renderAttachments(attachments, container, emptyMessage = "No attachments.") {
   container.innerHTML = "";
 
   if (!attachments || !attachments.length) {
-    container.innerHTML = `<p class="hint">No attachments were included with this request.</p>`;
+    container.innerHTML = `<p class="hint">${escapeHtml(emptyMessage)}</p>`;
     return;
   }
 
@@ -501,6 +686,17 @@ function renderAttachments(attachments, container) {
     `;
     container.appendChild(item);
   });
+}
+
+function renderInlineAttachments(attachments) {
+  if (!attachments || !attachments.length) return "";
+  const items = attachments.map((attachment) => `
+    <div class="attachment-item timeline-attachment">
+      <span>${escapeHtml(attachment.name)} <small>(${formatFileSize(attachment.size)})</small></span>
+      <a href="${attachment.dataUrl}" download="${escapeHtml(attachment.name)}">Download</a>
+    </div>
+  `).join("");
+  return `<div class="timeline-attachments"><strong>Attachments</strong>${items}</div>`;
 }
 
 function renderTimeline(activity, container, mode) {
@@ -519,11 +715,12 @@ function renderTimeline(activity, container, mode) {
     const item = document.createElement("div");
     item.className = `timeline-item ${entry.type}`;
     const title = activityTitle(entry, mode);
-    const audienceLabel = mode === "agent" && entry.audience === "customer" ? " · visible to requester" : "";
+    const audienceLabel = mode === "agent" && entry.audience === "customer" ? " · visible to customer" : "";
     item.innerHTML = `
       <strong>${escapeHtml(title)}</strong>
       <span class="timeline-meta">${escapeHtml(entry.author)} · ${formatDateTime(entry.createdAt)}${audienceLabel}</span>
       <p>${escapeHtml(entry.text)}</p>
+      ${renderInlineAttachments(entry.attachments)}
     `;
     container.appendChild(item);
   });
@@ -531,20 +728,31 @@ function renderTimeline(activity, container, mode) {
 
 function activityTitle(entry, mode) {
   if (entry.type === "note") return "Internal note";
-  if (entry.type === "reply") return mode === "customer" ? "Message from support" : "Reply to requester";
-  if (entry.type === "customer-reply") return "Requester reply";
+  if (entry.type === "reply") return mode === "customer" ? "Message from support" : "Reply to Customer";
+  if (entry.type === "customer-reply") return "Customer reply";
   if (entry.type === "resolution") return "Resolution notes";
   if (entry.type === "reopen") return "Re-open request";
+  if (entry.type === "assignment") return "Assignment update";
+  if (entry.type === "category") return "Category update";
   return "System update";
 }
 
-function updateRequestStatus(requestId, status) {
+function updateRequestStatus(requestId, status, options = {}) {
   const request = requests.find((item) => item.id === requestId);
+  const agent = getCurrentAgent();
   if (!request || request.status === "Closed") return;
 
   const now = new Date().toISOString();
   request.status = status;
   request.updatedAt = now;
+
+  if (options.assignToCurrent && agent) {
+    request.assignedAgentId = agent.id;
+  }
+
+  if (isOpenStatus(status)) {
+    request.resolvedAt = null;
+  }
 
   if (status === "Resolved") {
     request.resolvedAt = now;
@@ -555,22 +763,68 @@ function updateRequestStatus(requestId, status) {
     request.activity.push({
       id: createId(),
       type: "system",
-      author: "Agent",
+      author: agent ? displayAgentName(agent) : "Agent",
       text: "Case closed. This case cannot be re-opened; please raise a new support request if more help is needed.",
       createdAt: now,
       audience: "customer",
+      attachments: [],
     });
   } else {
+    const assignmentText = options.assignToCurrent && agent ? ` Assigned to ${displayAgentName(agent)}.` : "";
     request.activity.push({
       id: createId(),
       type: "system",
-      author: "Agent",
-      text: `Status changed to ${status}.`,
+      author: agent ? displayAgentName(agent) : "Agent",
+      text: `Status changed to ${status}.${assignmentText}`,
       createdAt: now,
       audience: "customer",
+      attachments: [],
     });
   }
 
+  saveAndRender(request.id);
+}
+
+function assignRequest(requestId, agentId, silentIfSame = true) {
+  const request = requests.find((item) => item.id === requestId);
+  const currentAgent = getCurrentAgent();
+  if (!request || request.status === "Closed") return;
+  if (silentIfSame && request.assignedAgentId === agentId) return;
+
+  const oldAgent = getAgentById(request.assignedAgentId);
+  const newAgent = getAgentById(agentId);
+  request.assignedAgentId = agentId || null;
+  request.updatedAt = new Date().toISOString();
+  request.activity.push({
+    id: createId(),
+    type: "assignment",
+    author: currentAgent ? displayAgentName(currentAgent) : "Agent",
+    text: `Assignment changed from ${oldAgent ? displayAgentName(oldAgent) : "Unassigned"} to ${newAgent ? displayAgentName(newAgent) : "Unassigned"}.`,
+    createdAt: request.updatedAt,
+    audience: "internal",
+    attachments: [],
+  });
+  saveAndRender(request.id);
+}
+
+function changeRequestCategory(requestId, newCategory) {
+  const request = requests.find((item) => item.id === requestId);
+  const currentAgent = getCurrentAgent();
+  if (!request || request.status === "Closed" || !CATEGORIES.includes(newCategory)) return;
+  if (request.category === newCategory) return;
+
+  const oldCategory = request.category;
+  request.category = newCategory;
+  request.updatedAt = new Date().toISOString();
+  request.activity.push({
+    id: createId(),
+    type: "category",
+    author: currentAgent ? displayAgentName(currentAgent) : "Agent",
+    text: `Category changed from ${oldCategory} to ${newCategory}.`,
+    createdAt: request.updatedAt,
+    audience: "internal",
+    attachments: [],
+  });
   saveAndRender(request.id);
 }
 
@@ -589,6 +843,7 @@ function handleResolveSubmit(event) {
   if (!notes || !pendingResolveRequestId) return;
 
   const request = requests.find((item) => item.id === pendingResolveRequestId);
+  const agent = getCurrentAgent();
   if (!request || request.status === "Closed") return;
 
   const now = new Date().toISOString();
@@ -599,37 +854,46 @@ function handleResolveSubmit(event) {
   request.activity.push({
     id: createId(),
     type: "resolution",
-    author: "Agent",
+    author: agent ? displayAgentName(agent) : "Agent",
     text: `Your case has been resolved. Resolution notes: ${notes}`,
     createdAt: now,
     audience: "customer",
+    attachments: [],
   });
 
   closeModal("resolution-modal");
   saveAndRender(request.id);
 }
 
-function addAgentUpdate(requestId) {
+async function addAgentUpdate(requestId) {
   const textarea = requestDetail.querySelector("#agent-update-text");
+  const fileInputEl = requestDetail.querySelector("#agent-update-attachments");
   const text = textarea.value.trim();
+  const files = [...fileInputEl.files];
 
-  if (!text) {
-    alert("Please type an update first.");
+  if (!text && !files.length) {
+    alert("Please type an update or attach a file first.");
     return;
   }
 
+  if (!validateAttachmentSize(files)) return;
+
   const request = requests.find((item) => item.id === requestId);
+  const agent = getCurrentAgent();
   if (!request || request.status === "Closed") return;
 
   const now = new Date().toISOString();
   request.updatedAt = now;
+  if (!request.assignedAgentId && agent) request.assignedAgentId = agent.id;
+
   request.activity.push({
     id: createId(),
     type: updateType,
-    author: "Agent",
-    text,
+    author: agent ? displayAgentName(agent) : "Agent",
+    text: text || (files.length ? "Attached file(s)." : ""),
     createdAt: now,
     audience: updateType === "note" ? "internal" : "customer",
+    attachments: await readAttachments(files),
   });
 
   if (request.status === "New") {
@@ -641,6 +905,7 @@ function addAgentUpdate(requestId) {
       text: "Status changed to In Progress after agent update.",
       createdAt: now,
       audience: "customer",
+      attachments: [],
     });
   }
 
@@ -649,6 +914,7 @@ function addAgentUpdate(requestId) {
 
 function reopenCaseAsAgent(requestId) {
   const request = requests.find((item) => item.id === requestId);
+  const agent = getCurrentAgent();
   if (!request || request.status !== "Resolved") return;
 
   const now = new Date().toISOString();
@@ -658,10 +924,11 @@ function reopenCaseAsAgent(requestId) {
   request.activity.push({
     id: createId(),
     type: "reopen",
-    author: "Agent",
+    author: agent ? displayAgentName(agent) : "Agent",
     text: "Case re-opened by agent.",
     createdAt: now,
     audience: "customer",
+    attachments: [],
   });
 
   saveAndRender(request.id);
@@ -690,7 +957,7 @@ function renderCustomerPortal(allowAutoClose = true) {
   customerRequestList.innerHTML = "";
 
   if (!filtered.length) {
-    customerRequestList.innerHTML = `<div class="no-results">No matching requests found for this email and status filter.</div>`;
+    customerRequestList.innerHTML = `<div class="no-results">No requests found for this email and status filter.</div>`;
     selectedCustomerRequestId = null;
     renderEmptyCustomerDetail("No request selected", "Try another status filter or check the email address used when raising the request.");
     return;
@@ -747,25 +1014,30 @@ function renderCustomerRequestDetail(requestId) {
 
   const alertBox = content.querySelector(".customer-case-alert");
   const replyText = content.querySelector("#customer-reply-text");
+  const replyFiles = content.querySelector("#customer-reply-attachments");
+  const replyFileList = content.querySelector("#customer-reply-file-list");
   const replyButton = content.querySelector("#customer-add-reply");
   const reopenButton = content.querySelector("#customer-reopen-case");
   const replyHint = content.querySelector(".customer-reply-hint");
 
+  replyFiles.addEventListener("change", () => renderFileSelection(replyFiles, replyFileList));
   setCustomerCaseAlert(request, alertBox);
   renderTimeline(request.activity, content.querySelector(".customer-timeline"), "customer");
 
   if (request.status === "Closed") {
     replyText.disabled = true;
+    replyFiles.disabled = true;
     replyButton.disabled = true;
     replyHint.textContent = "This case is closed and cannot be re-opened. Please raise a new support request if you need more help.";
   } else if (request.status === "Resolved") {
     replyText.disabled = true;
+    replyFiles.disabled = true;
     replyButton.disabled = true;
     reopenButton.classList.remove("hidden");
     replyHint.textContent = "This case is resolved. You can re-open it within the portal if more work is needed.";
     reopenButton.addEventListener("click", () => openRequesterReopenModal(request.id));
   } else {
-    replyHint.textContent = "Your reply will be visible to agents in the case activity.";
+    replyHint.textContent = "Your reply and attachments will be visible to agents in the case activity.";
     replyButton.addEventListener("click", () => addCustomerReply(request.id));
   }
 
@@ -792,14 +1064,18 @@ function setCustomerCaseAlert(request, container) {
   container.textContent = "This case is open. Support can send updates here, and you can reply below.";
 }
 
-function addCustomerReply(requestId) {
+async function addCustomerReply(requestId) {
   const textarea = customerRequestDetail.querySelector("#customer-reply-text");
+  const fileInputEl = customerRequestDetail.querySelector("#customer-reply-attachments");
   const text = textarea.value.trim();
+  const files = [...fileInputEl.files];
 
-  if (!text) {
-    alert("Please type your reply first.");
+  if (!text && !files.length) {
+    alert("Please type a reply or attach a file first.");
     return;
   }
+
+  if (!validateAttachmentSize(files)) return;
 
   const request = requests.find((item) => item.id === requestId);
   if (!request || request.status === "Closed" || request.status === "Resolved") return;
@@ -810,9 +1086,10 @@ function addCustomerReply(requestId) {
     id: createId(),
     type: "customer-reply",
     author: request.requesterName,
-    text,
+    text: text || (files.length ? "Attached file(s)." : ""),
     createdAt: now,
     audience: "customer",
+    attachments: await readAttachments(files),
   });
 
   if (request.status === "Waiting on Customer") {
@@ -821,9 +1098,10 @@ function addCustomerReply(requestId) {
       id: createId(),
       type: "system",
       author: "System",
-      text: "Status changed to In Progress after requester reply.",
+      text: "Status changed to In Progress after customer reply.",
       createdAt: now,
       audience: "customer",
+      attachments: [],
     });
   }
 
@@ -855,13 +1133,13 @@ function handleRequesterReopenSubmit(event) {
     id: createId(),
     type: "reopen",
     author: request.requesterName,
-    text: `Requester re-opened the case. Reason: ${reason}`,
+    text: `Customer re-opened the case. Reason: ${reason}`,
     createdAt: now,
     audience: "customer",
+    attachments: [],
   });
 
   closeModal("reopen-modal");
-  customerStatusFilter.value = "Open";
   saveAndRender(request.id, true);
 }
 
@@ -890,16 +1168,55 @@ function saveAndRender(requestId, preferCustomer = false) {
 
   if (preferCustomer) {
     renderCustomerRequestDetail(requestId);
-  } else {
+  } else if (getCurrentAgent()) {
     renderRequestDetail(requestId);
   }
+}
+
+function handleAddAgent(event) {
+  event.preventDefault();
+  const firstName = document.getElementById("agent-first-name").value.trim();
+  const lastName = document.getElementById("agent-last-name").value.trim();
+  const email = document.getElementById("agent-email").value.trim();
+  const password = document.getElementById("agent-password").value;
+
+  if (!firstName || !lastName || !email || !password) return;
+  if (agents.some((agent) => agent.email.toLowerCase() === email.toLowerCase())) {
+    alert("An agent with this email already exists.");
+    return;
+  }
+
+  agents.push({ id: createId(), firstName, lastName, email, password });
+  saveAgents();
+  agentForm.reset();
+  populateAgentLoginSelect();
+  renderSettings();
+  renderInbox();
+}
+
+function renderSettings() {
+  if (!agentList) return;
+  agentList.innerHTML = "";
+  agents.forEach((agent) => {
+    const item = document.createElement("div");
+    item.className = "agent-list-item";
+    item.innerHTML = `
+      <div>
+        <strong>${escapeHtml(fullAgentName(agent))}</strong>
+        <p>${escapeHtml(agent.email)}</p>
+      </div>
+      <span class="agent-badge">${escapeHtml(displayAgentName(agent))}</span>
+    `;
+    agentList.appendChild(item);
+  });
 }
 
 function exportRequests() {
   const payload = {
     exportedAt: new Date().toISOString(),
-    version: 2,
+    version: 3,
     requests,
+    agents,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -927,13 +1244,20 @@ function importRequests(event) {
       }
 
       requests = normaliseRequests(importedRequests);
+      if (Array.isArray(parsed.agents)) {
+        agents = normaliseAgents(parsed.agents);
+        saveAgents();
+      }
       autoCloseResolvedRequests();
       selectedRequestId = null;
       selectedCustomerRequestId = null;
       saveRequests();
       updateCounterFromRequests();
+      populateAgentLoginSelect();
+      renderAgentArea();
       renderInbox();
       renderCustomerPortal();
+      renderSettings();
       alert("Requests imported successfully.");
     } catch (error) {
       alert("Could not import this file. Please choose a valid support request export.");
@@ -946,7 +1270,7 @@ function importRequests(event) {
 }
 
 function clearRequests() {
-  const confirmed = confirm("Clear all saved requests from this browser?");
+  const confirmed = confirm("Clear all saved requests from this browser? Agent settings will be kept.");
   if (!confirmed) return;
 
   requests = [];
