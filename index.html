@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Support Request Portal</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">Support Portal</p>
+      <h1>Support Request Portal</h1>
+      <p class="subtitle">Raise, manage, and resolve support requests in one shared inbox.</p>
+    </div>
+    <nav class="top-nav" aria-label="Main navigation">
+      <button class="nav-btn active" data-target="raise-section">Raise a Support Request</button>
+      <button class="nav-btn" data-target="agent-section">Agent Inbox</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="raise-section" class="page-section active" aria-labelledby="raise-heading">
+      <div class="grid two-col">
+        <article class="card form-card">
+          <div class="section-heading">
+            <p class="eyebrow">Customer form</p>
+            <h2 id="raise-heading">Raise a Support Request</h2>
+            <p>Complete the form below and your request will appear in the agent inbox.</p>
+          </div>
+
+          <form id="support-form" autocomplete="on">
+            <div class="form-row">
+              <label for="requester-name">Your name</label>
+              <input id="requester-name" name="requesterName" type="text" placeholder="e.g. Alex Taylor" required />
+            </div>
+
+            <div class="form-row">
+              <label for="requester-email">Email address</label>
+              <input id="requester-email" name="requesterEmail" type="email" placeholder="e.g. alex@example.com" required />
+            </div>
+
+            <div class="form-row">
+              <label for="request-category">Category</label>
+              <select id="request-category" name="category" required>
+                <option value="" disabled selected>Select a category</option>
+                <option>Payroll</option>
+                <option>Login or access</option>
+                <option>Employee details</option>
+                <option>Leave or absence</option>
+                <option>System issue</option>
+                <option>General enquiry</option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <label for="request-subject">Subject</label>
+              <input id="request-subject" name="subject" type="text" placeholder="Short summary of the issue" required />
+            </div>
+
+            <div class="form-row">
+              <label for="request-details">Details</label>
+              <textarea id="request-details" name="details" rows="7" placeholder="Tell us what happened and what help you need" required></textarea>
+            </div>
+
+            <div class="form-row">
+              <label for="request-attachments">Attachments</label>
+              <input id="request-attachments" name="attachments" type="file" multiple />
+              <p class="hint">Optional. For this GitHub Pages version, attachments are saved in your browser, so smaller files are best.</p>
+              <ul id="selected-files" class="file-list" aria-live="polite"></ul>
+            </div>
+
+            <button type="submit" class="primary-btn">Submit Request</button>
+          </form>
+        </article>
+
+        <aside class="card info-card">
+          <p class="eyebrow">How it works</p>
+          <h2>Simple helpdesk workflow</h2>
+          <ol class="workflow-list">
+            <li><span>1</span><div><strong>Submit</strong><p>A customer raises a request with details and optional files.</p></div></li>
+            <li><span>2</span><div><strong>Review</strong><p>Agents see the request in the shared inbox.</p></div></li>
+            <li><span>3</span><div><strong>Work</strong><p>Agents add internal notes, send replies, and update the status.</p></div></li>
+            <li><span>4</span><div><strong>Resolve</strong><p>Once complete, the request can be marked as resolved or closed.</p></div></li>
+          </ol>
+          <div id="submission-success" class="success-box hidden" role="status"></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="agent-section" class="page-section" aria-labelledby="agent-heading">
+      <div class="section-heading full-width-heading">
+        <p class="eyebrow">Agent workspace</p>
+        <h2 id="agent-heading">Agent Inbox</h2>
+        <p>View new requests, open a request, add updates, and resolve it.</p>
+      </div>
+
+      <div class="agent-layout">
+        <aside class="card inbox-panel">
+          <div class="inbox-toolbar">
+            <div class="form-row compact">
+              <label for="search-requests">Search</label>
+              <input id="search-requests" type="search" placeholder="Search by number, name, email, subject..." />
+            </div>
+            <div class="form-row compact">
+              <label for="status-filter">Status</label>
+              <select id="status-filter">
+                <option value="All">All statuses</option>
+                <option>New</option>
+                <option>In Progress</option>
+                <option>Waiting on Customer</option>
+                <option>Resolved</option>
+                <option>Closed</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="inbox-stats" aria-live="polite">
+            <div><strong id="stat-total">0</strong><span>Total</span></div>
+            <div><strong id="stat-open">0</strong><span>Open</span></div>
+            <div><strong id="stat-resolved">0</strong><span>Resolved</span></div>
+          </div>
+
+          <div id="request-list" class="request-list" role="list"></div>
+
+          <div class="data-actions">
+            <button id="export-data" type="button" class="secondary-btn">Export Data</button>
+            <label for="import-data" class="secondary-btn file-label">Import Data</label>
+            <input id="import-data" type="file" accept="application/json" class="visually-hidden" />
+            <button id="clear-data" type="button" class="danger-btn">Clear All</button>
+          </div>
+        </aside>
+
+        <article id="request-detail" class="card detail-panel empty-state">
+          <div class="empty-illustration">✉️</div>
+          <h3>Select a request</h3>
+          <p>Open a request from the inbox to start working on it.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <template id="request-detail-template">
+    <div class="detail-header">
+      <div>
+        <p class="eyebrow request-number"></p>
+        <h3 class="detail-subject"></h3>
+        <p class="request-meta"></p>
+      </div>
+      <span class="status-pill"></span>
+    </div>
+
+    <div class="status-actions" aria-label="Status actions">
+      <button data-status="In Progress" class="secondary-btn">Start Work</button>
+      <button data-status="Waiting on Customer" class="secondary-btn">Waiting on Customer</button>
+      <button data-status="Resolved" class="primary-btn">Resolve</button>
+      <button data-status="Closed" class="secondary-btn">Close</button>
+    </div>
+
+    <div class="detail-grid">
+      <section>
+        <h4>Requester</h4>
+        <p class="requester-info"></p>
+      </section>
+      <section>
+        <h4>Category</h4>
+        <p class="category-info"></p>
+      </section>
+    </div>
+
+    <section class="request-message">
+      <h4>Request details</h4>
+      <p class="details-text"></p>
+    </section>
+
+    <section class="attachments-section">
+      <h4>Attachments</h4>
+      <div class="attachments-list"></div>
+    </section>
+
+    <section class="timeline-section">
+      <h4>Activity</h4>
+      <div class="timeline"></div>
+    </section>
+
+    <section class="update-panel">
+      <h4>Add update</h4>
+      <div class="update-toggle" role="group" aria-label="Update type">
+        <button type="button" class="toggle-btn active" data-update-type="reply">Reply to requester</button>
+        <button type="button" class="toggle-btn" data-update-type="note">Internal note</button>
+      </div>
+      <textarea id="agent-update-text" rows="5" placeholder="Type your update here..."></textarea>
+      <button id="add-update" type="button" class="primary-btn">Add Update</button>
+      <p class="hint">Replies and notes are saved to this demo inbox. This static version does not send real emails.</p>
+    </section>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
