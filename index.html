@@ -11,10 +11,11 @@
     <div>
       <p class="eyebrow">Support Portal</p>
       <h1>Support Request Portal</h1>
-      <p class="subtitle">Raise, manage, and resolve support requests in one shared inbox.</p>
+      <p class="subtitle">Raise, track, manage, and resolve support requests in one shared portal.</p>
     </div>
     <nav class="top-nav" aria-label="Main navigation">
       <button class="nav-btn active" data-target="raise-section">Raise a Support Request</button>
+      <button class="nav-btn" data-target="track-section">Track My Requests</button>
       <button class="nav-btn" data-target="agent-section">Agent Inbox</button>
     </nav>
   </header>
@@ -44,12 +45,9 @@
               <label for="request-category">Category</label>
               <select id="request-category" name="category" required>
                 <option value="" disabled selected>Select a category</option>
-                <option>Payroll</option>
-                <option>Login or access</option>
-                <option>Employee details</option>
-                <option>Leave or absence</option>
-                <option>System issue</option>
-                <option>General enquiry</option>
+                <option>ICT</option>
+                <option>Finance Service</option>
+                <option>Human Resources</option>
               </select>
             </div>
 
@@ -79,12 +77,54 @@
           <h2>Simple helpdesk workflow</h2>
           <ol class="workflow-list">
             <li><span>1</span><div><strong>Submit</strong><p>A customer raises a request with details and optional files.</p></div></li>
-            <li><span>2</span><div><strong>Review</strong><p>Agents see the request in the shared inbox.</p></div></li>
-            <li><span>3</span><div><strong>Work</strong><p>Agents add internal notes, send replies, and update the status.</p></div></li>
-            <li><span>4</span><div><strong>Resolve</strong><p>Once complete, the request can be marked as resolved or closed.</p></div></li>
+            <li><span>2</span><div><strong>Review</strong><p>Agents see new, in progress, and waiting requests in the Open inbox.</p></div></li>
+            <li><span>3</span><div><strong>Track</strong><p>Requesters can track their cases, see customer-facing updates, and reply.</p></div></li>
+            <li><span>4</span><div><strong>Resolve</strong><p>Agents add resolution notes. Resolved cases close automatically after 14 days.</p></div></li>
           </ol>
           <div id="submission-success" class="success-box hidden" role="status"></div>
         </aside>
+      </div>
+    </section>
+
+    <section id="track-section" class="page-section" aria-labelledby="track-heading">
+      <div class="section-heading full-width-heading">
+        <p class="eyebrow">Requester portal</p>
+        <h2 id="track-heading">Track My Requests</h2>
+        <p>Enter your email address to view your cases, read messages sent to you, and reply.</p>
+      </div>
+
+      <div class="customer-layout">
+        <aside class="card inbox-panel">
+          <form id="customer-search-form" class="customer-search-form" autocomplete="on">
+            <div class="form-row compact">
+              <label for="customer-email-search">Email address</label>
+              <input id="customer-email-search" type="email" placeholder="e.g. alex@example.com" required />
+            </div>
+            <div class="form-row compact">
+              <label for="customer-status-filter">Status</label>
+              <select id="customer-status-filter">
+                <option value="Open" selected>Open</option>
+                <option value="All">All statuses</option>
+                <option>New</option>
+                <option>In Progress</option>
+                <option>Waiting on Customer</option>
+                <option>Resolved</option>
+                <option>Closed</option>
+              </select>
+            </div>
+            <button type="submit" class="primary-btn full-width-btn">Find My Requests</button>
+          </form>
+
+          <div id="customer-request-list" class="request-list" role="list" aria-live="polite">
+            <div class="no-results">Enter your email address to find your requests.</div>
+          </div>
+        </aside>
+
+        <article id="customer-request-detail" class="card detail-panel empty-state">
+          <div class="empty-illustration">🔎</div>
+          <h3>Track a request</h3>
+          <p>Search using the email address used when the request was raised.</p>
+        </article>
       </div>
     </section>
 
@@ -92,7 +132,7 @@
       <div class="section-heading full-width-heading">
         <p class="eyebrow">Agent workspace</p>
         <h2 id="agent-heading">Agent Inbox</h2>
-        <p>View new requests, open a request, add updates, and resolve it.</p>
+        <p>View open requests by default, send replies, add internal notes, resolve, reopen, and close cases.</p>
       </div>
 
       <div class="agent-layout">
@@ -105,6 +145,7 @@
             <div class="form-row compact">
               <label for="status-filter">Status</label>
               <select id="status-filter">
+                <option value="Open" selected>Open</option>
                 <option value="All">All statuses</option>
                 <option>New</option>
                 <option>In Progress</option>
@@ -150,12 +191,7 @@
       <span class="status-pill"></span>
     </div>
 
-    <div class="status-actions" aria-label="Status actions">
-      <button data-status="In Progress" class="secondary-btn">Start Work</button>
-      <button data-status="Waiting on Customer" class="secondary-btn">Waiting on Customer</button>
-      <button data-status="Resolved" class="primary-btn">Resolve</button>
-      <button data-status="Closed" class="secondary-btn">Close</button>
-    </div>
+    <div class="status-actions" aria-label="Status actions"></div>
 
     <div class="detail-grid">
       <section>
@@ -178,11 +214,6 @@
       <div class="attachments-list"></div>
     </section>
 
-    <section class="timeline-section">
-      <h4>Activity</h4>
-      <div class="timeline"></div>
-    </section>
-
     <section class="update-panel">
       <h4>Add update</h4>
       <div class="update-toggle" role="group" aria-label="Update type">
@@ -191,9 +222,94 @@
       </div>
       <textarea id="agent-update-text" rows="5" placeholder="Type your update here..."></textarea>
       <button id="add-update" type="button" class="primary-btn">Add Update</button>
-      <p class="hint">Replies and notes are saved to this demo inbox. This static version does not send real emails.</p>
+      <p class="hint">Replies appear in the requester portal. Internal notes are only shown in the agent activity history.</p>
+    </section>
+
+    <section class="timeline-section">
+      <h4>Activity</h4>
+      <div class="timeline"></div>
     </section>
   </template>
+
+  <template id="customer-detail-template">
+    <div class="detail-header">
+      <div>
+        <p class="eyebrow customer-request-number"></p>
+        <h3 class="customer-detail-subject"></h3>
+        <p class="customer-request-meta"></p>
+      </div>
+      <span class="status-pill customer-status-pill"></span>
+    </div>
+
+    <div class="customer-case-alert"></div>
+
+    <div class="detail-grid">
+      <section>
+        <h4>Category</h4>
+        <p class="customer-category-info"></p>
+      </section>
+      <section>
+        <h4>Submitted by</h4>
+        <p class="customer-requester-info"></p>
+      </section>
+    </div>
+
+    <section class="request-message">
+      <h4>Your request</h4>
+      <p class="customer-details-text"></p>
+    </section>
+
+    <section class="timeline-section customer-messages-section">
+      <h4>Messages sent to you</h4>
+      <div class="customer-timeline"></div>
+    </section>
+
+    <section class="update-panel customer-reply-panel">
+      <h4>Reply to this case</h4>
+      <textarea id="customer-reply-text" rows="5" placeholder="Type your reply here..."></textarea>
+      <div class="reply-actions">
+        <button id="customer-add-reply" type="button" class="primary-btn">Send Reply</button>
+        <button id="customer-reopen-case" type="button" class="secondary-btn hidden">Re-open case</button>
+      </div>
+      <p class="hint customer-reply-hint"></p>
+    </section>
+  </template>
+
+  <div id="resolution-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="resolution-modal-title">
+    <form id="resolution-form" class="modal-card">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Resolve request</p>
+          <h3 id="resolution-modal-title">Add resolution notes</h3>
+        </div>
+        <button type="button" class="icon-btn" data-close-modal="resolution-modal" aria-label="Close resolution notes popup">×</button>
+      </div>
+      <p class="modal-copy">These notes will be shown to the requester as the resolved notification in the portal.</p>
+      <textarea id="resolution-notes" rows="6" placeholder="Explain how the request was resolved..." required></textarea>
+      <div class="modal-actions">
+        <button type="button" class="secondary-btn" data-close-modal="resolution-modal">Cancel</button>
+        <button type="submit" class="primary-btn">Resolve Case</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="reopen-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="reopen-modal-title">
+    <form id="reopen-form" class="modal-card">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Re-open request</p>
+          <h3 id="reopen-modal-title">Why should this case be re-opened?</h3>
+        </div>
+        <button type="button" class="icon-btn" data-close-modal="reopen-modal" aria-label="Close reopen case popup">×</button>
+      </div>
+      <p class="modal-copy">Please explain what still needs to be looked at. Your reason will be added to the case activity.</p>
+      <textarea id="reopen-reason" rows="6" placeholder="Explain why this case needs to be re-opened..." required></textarea>
+      <div class="modal-actions">
+        <button type="button" class="secondary-btn" data-close-modal="reopen-modal">Cancel</button>
+        <button type="submit" class="primary-btn">Re-open Case</button>
+      </div>
+    </form>
+  </div>
 
   <script src="app.js"></script>
 </body>

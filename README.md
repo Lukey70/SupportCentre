@@ -1,62 +1,90 @@
 # Support Request Portal
 
-A GitHub Pages-ready support request website. Users can raise support requests with optional attachments, and agents can manage requests from a shared inbox-style interface.
+A GitHub Pages-ready support request portal prototype. Users can raise support requests, track their cases in the portal, and agents can manage cases through an inbox-style workspace.
 
-## Features
+## Files
 
-- Raise a support request form
-- Request number generation, for example `REQ-00001`
-- Optional file attachments
-- Agent inbox with search and status filter
-- Request detail view
-- Status workflow:
+- `index.html` – page structure and templates
+- `styles.css` – visual styling
+- `app.js` – browser-only app logic
+
+## Current version features
+
+### Requester / customer side
+
+- Raise a Support Request form
+- Categories:
+  - ICT
+  - Finance Service
+  - Human Resources
+- Optional attachments
+- Track My Requests area
+- Search requests by requester email address
+- Default requester view is `Open`
+- Requesters can see:
+  - request status
+  - messages sent to them by agents
+  - resolution notes
+  - their own replies
+  - customer-facing system updates
+- Requesters can reply to open cases
+- Requesters can re-open resolved cases from the portal after entering a reason
+- Closed cases cannot be re-opened and require a new support request
+
+### Agent side
+
+- Agent inbox
+- Default agent status filter is `Open`
+- `Open` shows cases with these statuses:
   - New
   - In Progress
   - Waiting on Customer
-  - Resolved
-  - Closed
-- Agent replies and internal notes
-- Export and import request data as JSON
-- Browser-only storage using `localStorage`
+- Search by request number, name, email, category, subject, details, or status
+- Agents can add:
+  - replies to requester
+  - internal notes
+- In the request detail view, Add Update appears before Activity
+- Agents can resolve cases using a resolution notes popup
+- Resolution notes are shown to the requester in the portal
+- Agents can re-open resolved cases without a popup
+- Agents can manually close resolved cases
+- Closed cases cannot be re-opened
 
-## Important note about storage
+### Case lifecycle
 
-This first version is a static website, so it can run on GitHub Pages without a server or database. Requests are saved in the browser on the computer that submitted or managed them.
+- New requests start as `New`
+- `Open` is a filter/view, not a saved case status
+- Open includes:
+  - New
+  - In Progress
+  - Waiting on Customer
+- Resolved cases have a `Re-open case` option
+- Resolved cases automatically change to `Closed` after 14 days
+- Once a case is `Closed`, it cannot be re-opened
+
+### Data tools
+
+- Export saved request data to JSON
+- Import saved request data from JSON
+- Clear all browser-saved data
+
+## Important limitation
+
+This is a static GitHub Pages prototype. It stores requests, attachments, replies, and notes in the browser using `localStorage`.
 
 That means:
 
-- It is great for a prototype or demo.
-- It does not yet sync between different computers or agents.
-- Attachments are stored in the browser, so smaller files are best.
-- Real email sending is not included yet.
+- requests are not shared across different computers/browsers
+- resolution notifications are simulated inside the portal rather than sent as real emails
+- attachments are browser-stored demo attachments, so smaller files are best
 
-For a real shared helpdesk, the next upgrade would be adding a backend database and authentication.
+To make this a real multi-agent helpdesk later, the next step would be adding a backend/database and real email notifications.
 
-## How to use locally
-
-Open `index.html` in your browser.
-
-## How to publish on GitHub Pages
+## How to use on GitHub Pages
 
 1. Create a new GitHub repository.
-2. Upload these files:
-   - `index.html`
-   - `styles.css`
-   - `app.js`
-   - `README.md`
-3. Go to your repository settings.
+2. Upload `index.html`, `styles.css`, `app.js`, and `README.md`.
+3. Go to the repository settings.
 4. Open **Pages**.
-5. Set the source to your main branch and root folder.
-6. Save.
-7. GitHub will provide a public website link.
-
-## Suggested future upgrades
-
-- Agent login
-- Customer email notifications
-- Shared database
-- Customer request tracking page
-- Assignment to agents
-- Categories managed from an admin screen
-- SLA timers
-- Attachments stored securely in cloud storage
+5. Publish from the main branch/root folder.
+6. Open the GitHub Pages URL.
