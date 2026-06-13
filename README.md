@@ -90,8 +90,18 @@ To make this a real multi-agent helpdesk later, the next step would be adding a 
 6. Open the GitHub Pages URL.
 
 
-## v4.1 fix
+## v4.2 fix
 
 This version fixes the category mismatch by using exact category values in the website and by cache-busting the JavaScript/CSS filenames. It also corrects **My Support Requests** so customers must enter both case number and email address.
 
-Before testing v4.1, run `backend-patch-v4-1.sql` in Supabase SQL Editor, then upload all v4.1 files to GitHub and hard-refresh the website.
+Before testing v4.2, run `backend-patch-v4-2.sql` in Supabase SQL Editor, then upload all v4.2 files to GitHub and hard-refresh the website.
+
+## v4.2 category submit fix
+
+This version fixes the customer request form so it reads the category dropdown directly and validates that it is exactly one of:
+
+- ICT
+- Finance Service
+- Human Resources
+
+The page header should show `v4.2 Supabase`. If it does not, GitHub Pages is still serving an older version.
