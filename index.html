@@ -4,14 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Support Request Portal</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles-v4-1.css?v=4.1" />
 </head>
 <body>
   <header class="app-header">
     <div>
       <p class="eyebrow">Support Portal</p>
       <h1>Support Request Portal</h1>
-      <p class="subtitle">Raise, track, manage, and resolve support requests in one shared portal.</p>
+      <p class="subtitle">Raise, track, manage, and resolve support requests in one shared portal. <span class="version-marker">v4.1 Supabase</span></p>
     </div>
     <nav class="top-nav" aria-label="Main navigation">
       <button class="nav-btn active" data-target="raise-section">Raise a Support Request</button>
@@ -27,7 +27,7 @@
           <div class="section-heading">
             <p class="eyebrow">Customer form</p>
             <h2 id="raise-heading">Raise a Support Request</h2>
-            <p>Complete the form below and your request will be saved to the Supabase backend.</p>
+            <p>Complete the form below and your request will appear in the agent inbox.</p>
           </div>
 
           <form id="support-form" autocomplete="on">
@@ -45,9 +45,9 @@
               <label for="request-category">Category</label>
               <select id="request-category" name="category" required>
                 <option value="" disabled selected>Select a category</option>
-                <option>ICT</option>
-                <option>Finance Service</option>
-                <option>Human Resources</option>
+                <option value="ICT">ICT</option>
+                <option value="Finance Service">Finance Service</option>
+                <option value="Human Resources">Human Resources</option>
               </select>
             </div>
 
@@ -64,7 +64,7 @@
             <div class="form-row">
               <label for="request-attachments">Attachments</label>
               <input id="request-attachments" name="attachments" type="file" multiple />
-              <p class="hint">Optional. Attachments are uploaded to the case-attachments Supabase Storage bucket.</p>
+              <p class="hint">Optional. Attachments are uploaded to the secure case attachments bucket in Supabase.</p>
               <ul id="selected-files" class="file-list" aria-live="polite"></ul>
             </div>
 
@@ -88,9 +88,9 @@
 
     <section id="track-section" class="page-section" aria-labelledby="track-heading">
       <div class="section-heading full-width-heading">
-        <p class="eyebrow">Requester portal</p>
-        <h2 id="track-heading">Track My Requests</h2>
-        <p>Enter your case number and email address to view your case, read messages sent to you, and reply.</p>
+        <p class="eyebrow">Customer portal</p>
+        <h2 id="track-heading">My Support Requests</h2>
+        <p>Enter your case number and email address to view a specific request, read customer-facing updates, and reply.</p>
       </div>
 
       <div class="customer-layout">
@@ -115,7 +115,7 @@
         <article id="customer-request-detail" class="card detail-panel empty-state">
           <div class="empty-illustration">🔎</div>
           <h3>Track a request</h3>
-          <p>Search using your case number and the email address used when the request was raised.</p>
+          <p>Search using the case number and email address used when the request was raised.</p>
         </article>
       </div>
     </section>
@@ -131,7 +131,7 @@
         <div class="section-heading">
           <p class="eyebrow">Agent login</p>
           <h3>Log in as an agent</h3>
-          <p>Select your agent profile and enter your password to open the Agent Inbox.</p>
+          <p>Select your agent profile and enter your demo password to open the Agent Inbox.</p>
         </div>
         <form id="agent-login-form" autocomplete="off">
           <div class="form-row">
@@ -145,7 +145,7 @@
           <button type="submit" class="primary-btn">Log in</button>
           <p id="agent-login-error" class="form-error hidden" role="alert"></p>
         </form>
-        <p class="hint">Agent login is checked by your Supabase backend.</p>
+        <p class="hint">Demo only: GitHub Pages cannot protect passwords like a real backend login system.</p>
       </article>
 
       <div id="agent-workspace" class="hidden">
@@ -168,8 +168,8 @@
                 <label for="status-filter">Status</label>
                 <select id="status-filter">
                   <option value="Open" selected>Open</option>
-                  <option value="Assigned to Me">Assigned to Me</option>
-                  <option value="All Statuses">All statuses</option>
+                  <option value="AssignedToMe">Assigned to Me</option>
+                  <option value="All">All statuses</option>
                   <option>New</option>
                   <option>In Progress</option>
                   <option>Waiting on Customer</option>
@@ -181,9 +181,9 @@
                 <label for="category-filter">Category</label>
                 <select id="category-filter">
                   <option value="All Categories" selected>All categories</option>
-                  <option>ICT</option>
-                  <option>Finance Service</option>
-                  <option>Human Resources</option>
+                  <option value="ICT">ICT</option>
+                  <option value="Finance Service">Finance Service</option>
+                  <option value="Human Resources">Human Resources</option>
                 </select>
               </div>
             </div>
@@ -218,7 +218,7 @@
       <div class="section-heading full-width-heading">
         <p class="eyebrow">Admin settings</p>
         <h2 id="settings-heading">Settings</h2>
-        <p>Manage portal settings stored in Supabase. Agent passwords are checked by backend functions.</p>
+        <p>Manage demo portal settings. Agent passwords are for prototype use only.</p>
       </div>
 
       <div class="settings-layout">
@@ -414,46 +414,8 @@
     </form>
   </div>
 
-  <div id="reply-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="reply-modal-title">
-    <form id="reply-form" class="modal-card email-modal-card">
-      <div class="modal-header">
-        <div>
-          <p class="eyebrow">Reply to Customer</p>
-          <h3 id="reply-modal-title">Send customer reply</h3>
-        </div>
-        <button type="button" class="icon-btn" data-close-modal="reply-modal" aria-label="Close reply popup">×</button>
-      </div>
-      <p class="modal-copy">This saves the reply to the case. Real outgoing email sending can be connected later with an email provider/Edge Function.</p>
-      <div class="form-row">
-        <label for="reply-to-emails">To</label>
-        <input id="reply-to-emails" type="text" placeholder="customer@example.com, other@example.com" required />
-      </div>
-      <div class="form-row">
-        <label for="reply-cc-emails">CC</label>
-        <input id="reply-cc-emails" type="text" placeholder="optional@example.com" />
-      </div>
-      <div class="form-row">
-        <label for="reply-subject">Subject</label>
-        <input id="reply-subject" type="text" required />
-      </div>
-      <div class="form-row">
-        <label for="reply-body">Body</label>
-        <textarea id="reply-body" rows="10" required></textarea>
-      </div>
-      <div class="form-row compact attachment-input-row">
-        <label for="reply-attachments">Attachments</label>
-        <input id="reply-attachments" type="file" multiple />
-        <ul id="reply-file-list" class="file-list" aria-live="polite"></ul>
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="secondary-btn" data-close-modal="reply-modal">Cancel</button>
-        <button type="submit" class="primary-btn">Send</button>
-      </div>
-    </form>
-  </div>
-
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+  <script src="config.js?v=4.1"></script>
+  <script src="app-v4-1.js?v=4.1"></script>
 </body>
 </html>
