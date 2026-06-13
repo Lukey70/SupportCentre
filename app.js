@@ -108,10 +108,11 @@ document.querySelectorAll("[data-close-modal]").forEach((button) => {
   });
 });
 
+ensureDefaultAgentAvailable();
 const initialAutoClosedCount = autoCloseResolvedRequests();
 if (initialAutoClosedCount > 0) saveRequests();
 else saveRequests();
-saveAgents();
+populateAgentLoginSelect();
 renderAgentArea();
 renderInbox();
 renderCustomerPortal();
@@ -135,22 +136,30 @@ function loadRequests() {
 }
 
 function saveRequests() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(requests));
-  LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(requests));
+    LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+  } catch (error) {
+    console.error("Could not save requests", error);
+  }
 }
 
 function loadAgents() {
   try {
     const stored = localStorage.getItem(AGENTS_KEY);
-    return stored ? JSON.parse(stored) : [DEFAULT_AGENT];
+    return stored ? JSON.parse(stored) : [{ ...DEFAULT_AGENT }];
   } catch (error) {
     console.error("Could not load agents", error);
-    return [DEFAULT_AGENT];
+    return [{ ...DEFAULT_AGENT }];
   }
 }
 
 function saveAgents() {
-  localStorage.setItem(AGENTS_KEY, JSON.stringify(agents));
+  try {
+    localStorage.setItem(AGENTS_KEY, JSON.stringify(agents));
+  } catch (error) {
+    console.error("Could not save agents", error);
+  }
 }
 
 function createId() {
@@ -170,11 +179,29 @@ function normaliseAgents(items) {
       lastName: String(agent.lastName).trim(),
       email: String(agent.email).trim(),
       password: String(agent.password ?? ""),
-    }));
+    }))
+    .filter((agent) => agent.firstName && agent.lastName && agent.email);
 
-  const hasDefaultAgent = cleaned.some((agent) => agent.email.toLowerCase() === DEFAULT_AGENT.email.toLowerCase());
-  if (!hasDefaultAgent) cleaned.unshift({ ...DEFAULT_AGENT });
+  const defaultEmail = DEFAULT_AGENT.email.toLowerCase();
+  const existingDefault = cleaned.find((agent) => agent.email.toLowerCase() === defaultEmail);
+  if (!existingDefault) {
+    cleaned.unshift({ ...DEFAULT_AGENT });
+  } else {
+    existingDefault.id = existingDefault.id || DEFAULT_AGENT.id;
+    existingDefault.password = existingDefault.password || DEFAULT_AGENT.password;
+  }
+
   return cleaned;
+}
+
+function ensureDefaultAgentAvailable() {
+  agents = normaliseAgents(agents);
+  if (!agents.length) agents = [{ ...DEFAULT_AGENT }];
+  if (currentAgentId && !agents.some((agent) => agent.id === currentAgentId)) {
+    currentAgentId = "";
+    sessionStorage.removeItem(CURRENT_AGENT_KEY);
+  }
+  saveAgents();
 }
 
 function normaliseRequests(items) {
@@ -415,9 +442,24 @@ function renderAgentArea() {
 }
 
 function populateAgentLoginSelect() {
+  if (!agentLoginSelect) return;
+
+  agents = normaliseAgents(agents);
   const currentValue = agentLoginSelect.value;
-  agentLoginSelect.innerHTML = agents.map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(fullAgentName(agent))} · ${escapeHtml(agent.email)}</option>`).join("");
-  if (agents.some((agent) => agent.id === currentValue)) agentLoginSelect.value = currentValue;
+  agentLoginSelect.replaceChildren();
+
+  agents.forEach((agent) => {
+    const option = document.createElement("option");
+    option.value = agent.id;
+    option.textContent = `${fullAgentName(agent)} · ${agent.email}`;
+    agentLoginSelect.appendChild(option);
+  });
+
+  if (agents.some((agent) => agent.id === currentValue)) {
+    agentLoginSelect.value = currentValue;
+  } else if (agents.length > 0) {
+    agentLoginSelect.value = agents[0].id;
+  }
 }
 
 function handleAgentLogin(event) {

@@ -144,7 +144,9 @@
         <form id="agent-login-form" autocomplete="off">
           <div class="form-row">
             <label for="agent-login-select">Agent</label>
-            <select id="agent-login-select" required></select>
+            <select id="agent-login-select" required>
+              <option value="agent-luke-mcguiness">Luke McGuiness · Luke2003@outlook.com.au</option>
+            </select>
           </div>
           <div class="form-row">
             <label for="agent-login-password">Password</label>
@@ -395,7 +397,7 @@
         </div>
         <button type="button" class="icon-btn" data-close-modal="resolution-modal" aria-label="Close resolution notes popup">×</button>
       </div>
-      <p class="modal-copy">These notes will be shown to the customer as the resolved notification in the portal.</p>
+      <p class="modal-copy">These notes will be shown to the requester as the resolved notification in the portal.</p>
       <textarea id="resolution-notes" rows="6" placeholder="Explain how the request was resolved..." required></textarea>
       <div class="modal-actions">
         <button type="button" class="secondary-btn" data-close-modal="resolution-modal">Cancel</button>
