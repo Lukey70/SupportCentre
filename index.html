@@ -4,14 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Support Request Portal</title>
-  <link rel="stylesheet" href="styles-v4-3.css?v=4.3" />
+  <link rel="stylesheet" href="styles-v4-4.css?v=4.4" />
 </head>
 <body>
   <header class="app-header">
     <div>
       <p class="eyebrow">Support Portal</p>
       <h1>Support Request Portal</h1>
-      <p class="subtitle">Raise, track, manage, and resolve support requests in one shared portal. <span class="version-marker">v4.3 Supabase</span></p>
+      <p class="subtitle">Raise, track, manage, and resolve support requests in one shared portal. <span class="version-marker">v4.4 Supabase</span></p>
     </div>
     <nav class="top-nav" aria-label="Main navigation">
       <button class="nav-btn active" data-target="raise-section">Raise a Support Request</button>
@@ -168,11 +168,11 @@
                 <label for="status-filter">Status</label>
                 <select id="status-filter">
                   <option value="Open" selected>Open</option>
-                  <option value="AssignedToMe">Assigned to Me</option>
+                  <option value="Assigned to Me">Assigned to Me</option>
                   <option value="All">All statuses</option>
                   <option>New</option>
                   <option>In Progress</option>
-                  <option>Waiting on Customer</option>
+                  <option value="Waiting on Customer">Awaiting Info</option>
                   <option>Resolved</option>
                   <option>Closed</option>
                 </select>
@@ -414,8 +414,48 @@
     </form>
   </div>
 
+  <div id="reply-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="reply-modal-title">
+    <form id="reply-form" class="modal-card email-modal-card">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Customer email</p>
+          <h3 id="reply-modal-title">Reply to Customer</h3>
+        </div>
+        <button type="button" class="icon-btn" data-close-modal="reply-modal" aria-label="Close reply popup">×</button>
+      </div>
+      <p class="modal-copy">Compose a customer-facing reply. This is saved to the case activity. Real outgoing email sending will be connected in a later backend email step.</p>
+      <div class="form-row">
+        <label for="reply-to-emails">To</label>
+        <input id="reply-to-emails" type="text" placeholder="customer@example.com; other@example.com" required />
+        <p class="hint">Separate multiple email addresses with commas or semicolons.</p>
+      </div>
+      <div class="form-row">
+        <label for="reply-cc-emails">CC</label>
+        <input id="reply-cc-emails" type="text" placeholder="optional@example.com" />
+      </div>
+      <div class="form-row">
+        <label for="reply-subject">Subject</label>
+        <input id="reply-subject" type="text" required />
+      </div>
+      <div class="form-row">
+        <label for="reply-body">Body</label>
+        <textarea id="reply-body" rows="10" required></textarea>
+      </div>
+      <div class="form-row compact attachment-input-row">
+        <label for="reply-attachments">Attachments</label>
+        <input id="reply-attachments" type="file" multiple />
+        <ul id="reply-file-list" class="file-list" aria-live="polite"></ul>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="secondary-btn" data-close-modal="reply-modal">Cancel</button>
+        <button type="submit" class="primary-btn">Send</button>
+      </div>
+    </form>
+  </div>
+
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=4.1"></script>
-  <script src="app-v4-3.js?v=4.3"></script>
+  <script src="config.js?v=4.4"></script>
+  <script src="app-v4-4.js?v=4.4"></script>
 </body>
 </html>
