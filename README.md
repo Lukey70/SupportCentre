@@ -1,59 +1,35 @@
-# Support Request Portal v4.6 Supabase
+# Support Customer Portal v1 (Supabase)
 
-This version is based on v4.5 and adds separate customer first name / last name capture.
+This is the customer-facing portal only.
 
-## What changed in v4.6
+## What this site includes
 
-- The **Raise a Support Request** form now asks for:
-  - First name
-  - Last name
-  - Email address
-- The case still displays the customer's full name where appropriate.
-- The **Reply to Customer** email popup now auto-populates the greeting using only the customer's first name:
+- Raise a Support Request
+- First name and last name fields
+- Categories: ICT, Finance Service, Human Resources
+- Attachments when raising a case
+- My Support Requests lookup using case number + email address
+- Customer replies and customer attachments after the case is raised
+- Customer re-open reason for resolved cases
+- Portal-only case messages. Real outgoing email is not enabled in this version.
 
-```text
-Hello Alex,
+## Files to upload to the customer GitHub repository
 
-
-Kind regards,
-Luke M
-```
-
-- A new backend patch adds `customer_first_name` and `customer_last_name` columns to `support_requests`.
-- Existing cases are backfilled using the existing `customer_name` value.
-- The website calls a new Supabase function: `create_support_request_v2`.
-
-## Files to upload to GitHub
-
-Upload/replace all files from this folder:
+Upload these files to the root of your customer portal repository:
 
 - `index.html`
 - `config.js`
-- `app-v4-6.js`
-- `styles-v4-6.css`
-- `backend-patch-v4-6.sql`
+- `app-customer-v1.js`
+- `styles-customer-v1.css`
+- `backend-patch-split-v1.sql`
 - `README.md`
 
-## Supabase step
+## Supabase patch
 
-Before testing the website, run this file in Supabase SQL Editor:
+Run `backend-patch-split-v1.sql` once in Supabase SQL Editor. It is safe to run again if needed.
 
-```text
-backend-patch-v4-6.sql
-```
-
-You should see **Success. No rows returned**.
-
-## After uploading
-
-Open your GitHub Pages site, confirm the header says:
-
-```text
-v4.6 Supabase
-```
-
-Then press **Ctrl + F5** to hard refresh.
+The customer and agent portals use the same Supabase project, so you only need to run the patch once.
 
 ## Notes
 
-This version still saves the email-style reply to the case in Supabase. Real outgoing email sending still requires a later Supabase Edge Function/email provider setup.
+This version deliberately does not include real email sending or desktop notifications.
